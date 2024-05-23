@@ -56,6 +56,22 @@ A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you ha
      * When a change will take the weight over the max, the change is not made
      * For example, if the weight is 1, the max is 1.2, and the change is +0.3, the weight will be left at 1
 
+## Example Workflows
+
+Example workflows can be found in the two included example images, that use the **ScramblePrompts [m9]** node.
+
+## ScramblePromptsExample-1.png
+
+In this example workflow, the positive "CLIP Text Encode (prompt)" is replaced with a **ScramblePrompts [m9]** node.  ComfyUI will cache the results of nodes to make generation more efficient.  If you use this node without an input into **seed_optional**, the prompts will only be randomized the first time, with the results cached and reused.
+
+By adding a seed primitive, and connecting it to **seed_optional**, the node will be reevaluated for each run, resulting in a different result for each image.
+
+**print_output** is enabled, allowing you to see the results of prompt scrambling in the console window.
+
+## ScramblePromptsExample-2.png
+
+In this example, the **ScramblePrompts [m9]** node is used in conjunction with the existing positive "CLIP Text Encode (prompt)".  The prompts within the text encoder and left as is, and the scrambled prompts are added to them in the final prompt sent to the sampler.
+
 ## Help and Feedback
 
    * **Discord Server**

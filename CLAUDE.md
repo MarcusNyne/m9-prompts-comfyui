@@ -106,14 +106,23 @@ should preserve determinism for a given seed while restoring variation *within* 
 ### Fit geometry
 
 `calc_fit` returns `(new_w, new_h, x_offset, y_offset)` and is total — it clamps rather than raising, so a
-zero dimension or a negative `subscale` degrades to a 1px result instead of a `ZeroDivisionError`.
+zero dimension, a negative `subscale`, or an unknown `placement` degrades (to a 1px result, or to centering)
+instead of raising.
+
+`placement` names an anchor from `sPlacements` (`centered`, `bottom`, `left`, `right`, `bottom-left`,
+`bottom-right`), each a `(horizontal, vertical)` pair resolved by `_anchor_offset` against the slack
+`target - new`. `m9_fit_pose_node.py` builds its dropdown from `sPlacements.keys()`, so adding a `top*`
+variant is a one-line dict entry — the widget follows. The default is `centered`, and `fit()` defaults the
+argument too so workflows saved before the widget existed still load.
 
 Two things there are load-bearing and easy to break:
 
 - **Negative offsets are intentional.** `subscale > 1.0` makes the fitted image larger than the canvas, so
   the paste offsets go negative and the image is meant to crop against the edges. `PIL.Image.paste` does
   exactly that. Numpy slice-assignment would wrap the overflow to the opposite edge instead — that's why
-  the composite goes through PIL and not tensor slicing.
+  the composite goes through PIL and not tensor slicing. Placement still applies when overflowing: the
+  negative slack lands wholly on the anchored axis's far side, so `left` holds `x_offset` at 0 and crops
+  only the right.
 - **`subscale = 1.0` always fills the canvas**, upscaling a small input to touch the edges. That's a
   deliberate product decision, not an oversight; there is no never-upscale toggle.
 

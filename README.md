@@ -61,7 +61,7 @@ A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you ha
 
 ## FitPose [m9]
 
-Fits a pose/control image (such as an OpenPose skeleton on a black background) into a target canvas size without stretching.  The image is scaled to fit, centered, and padded with black.
+Fits a pose/control image (such as an OpenPose skeleton on a black background) into a target canvas size without stretching.  The image is scaled to fit, placed on the canvas, and padded with black.
 
 Found under the **image/transform** category.
 
@@ -78,12 +78,17 @@ Found under the **image/transform** category.
      * `1.0` scales the image so it touches the canvas edge exactly, with no margin
      * `0.8` scales to 80% of that, leaving a proportional margin around the image
      * Above `1.0` the image overflows and is cropped by the canvas edges
+   * **placement**: Where the image sits when it does not fill the canvas: centered, bottom, left, right, bottom-left, or bottom-right.
+     * `centered` (default) is the original behaviour
+     * `bottom` keeps a figure standing on the bottom edge, with the margin above it
+     * Has no visible effect at `subscale` `1.0`, since the image already fills the canvas on both axes
+     * Above `1.0` it decides which side is cropped: `left` keeps the left edge and crops the right
    * **interpolation**: Resampling filter: lanczos, bicubic, bilinear, or nearest.
      * `lanczos` (default) is a good general choice
      * `nearest` preserves hard skeleton lines without anti-aliasing softness
    * **width** / **height**: The canvas size to fit into, used only when **latent** is not connected.
 
-The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas.  Batches are supported, with each image fitted independently.
+The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas, so **placement** only matters once **subscale** moves away from `1.0`.  Batches are supported, with each image fitted independently.
 
 ## Example Workflows
 

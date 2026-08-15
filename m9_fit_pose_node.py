@@ -2,7 +2,11 @@ import numpy as np
 import torch
 from PIL import Image
 
-from .m_fitpose import calc_fit, target_from_latent
+from .m_fitpose import calc_fit, sPlacements, target_from_latent
+
+# Dropdown order for the placement widget; the keys themselves come from m_fitpose so
+# the widget can't drift from the geometry.
+PLACEMENTS = list(sPlacements.keys())
 
 # Image.Resampling exists on Pillow >= 9.1; older releases expose the constants on Image.
 _Resampling = getattr(Image, "Resampling", Image)
@@ -35,6 +39,7 @@ class FitPose_m9:
     def INPUT_TYPES(s):
         return {"required": {"image": ("IMAGE", ),
                                 "subscale": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                                "placement": (PLACEMENTS, {"default": "centered"}),
                                 "interpolation": (["lanczos", "bicubic", "bilinear", "nearest"], {"default": "lanczos"}),
                                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -51,7 +56,8 @@ class FitPose_m9:
     # ResizeAndPadImage). Not image/postprocessing -- that's for after-generation filters.
     CATEGORY = "image/transform"
 
-    def fit(self, image, subscale, interpolation, width=1024, height=1024, latent=None):
+    # placement defaults so a workflow saved before the widget existed still loads.
+    def fit(self, image, subscale, interpolation, placement="centered", width=1024, height=1024, latent=None):
         target_w = width
         target_h = height
         if latent is not None:
@@ -65,7 +71,7 @@ class FitPose_m9:
         frames = []
         for x in range(image.shape[0]):
             frame = tensor_to_pil(image[x])
-            new_w, new_h, x_offset, y_offset = calc_fit(frame.width, frame.height, target_w, target_h, subscale)
+            new_w, new_h, x_offset, y_offset = calc_fit(frame.width, frame.height, target_w, target_h, subscale, placement)
             resized = frame.resize((new_w, new_h), resample)
 
             canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))

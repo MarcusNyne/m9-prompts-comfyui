@@ -6,13 +6,35 @@
 # Holds for SD1.5, SDXL, SD3 and Flux; revisit if a future VAE uses a different factor.
 sLatentScaleFactor = 8
 
+# Where the fitted image sits on the canvas when it doesn't fill it (subscale < 1).
+# Each entry maps to (horizontal, vertical) anchors; anything unrecognized falls back
+# to centering on that axis, so calc_fit stays total for a garbage placement string.
+sPlacements = {
+    "centered":     ("center", "center"),
+    "bottom":       ("center", "bottom"),
+    "left":         ("left",   "center"),
+    "right":        ("right",  "center"),
+    "bottom-left":  ("left",   "bottom"),
+    "bottom-right": ("right",  "bottom"),
+}
 
-def calc_fit(inImageW, inImageH, inTargetW, inTargetH, inSubscale):
+
+def _anchor_offset(inSlack, inAnchor):
+    # inSlack is target - new, so it goes negative when the image overflows the canvas.
+    if inAnchor in ("left", "top"):
+        return 0
+    if inAnchor in ("right", "bottom"):
+        return inSlack
+    return inSlack // 2
+
+
+def calc_fit(inImageW, inImageH, inTargetW, inTargetH, inSubscale, inPlacement="centered"):
     """Fit an image into a target canvas without stretching.
 
     Returns (new_w, new_h, x_offset, y_offset). Offsets are top-left paste coordinates
     and go negative when inSubscale > 1, which is intended: the image overflows and is
-    cropped by the canvas edges.
+    cropped by the canvas edges. With an edge placement the overflow is pushed entirely
+    to the opposite edge -- e.g. "left" keeps x_offset at 0 and crops off the right.
     """
     # Guards: these shouldn't happen, but a zero dimension would divide by zero.
     inImageW = max(int(inImageW), 1)
@@ -27,8 +49,9 @@ def calc_fit(inImageW, inImageH, inTargetW, inTargetH, inSubscale):
     new_w = max(int(round(inImageW * final_scale)), 1)
     new_h = max(int(round(inImageH * final_scale)), 1)
 
-    x_offset = (inTargetW - new_w) // 2
-    y_offset = (inTargetH - new_h) // 2
+    h_anchor, v_anchor = sPlacements.get(inPlacement, sPlacements["centered"])
+    x_offset = _anchor_offset(inTargetW - new_w, h_anchor)
+    y_offset = _anchor_offset(inTargetH - new_h, v_anchor)
 
     return (new_w, new_h, x_offset, y_offset)
 

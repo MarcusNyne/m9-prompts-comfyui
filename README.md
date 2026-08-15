@@ -6,18 +6,21 @@ Two custom nodes are included for modifying a prompt to create prompt variations
    * ScramblePrompts [m9]: Reorder prompts, remove prompts, modify weights
    * TweakWeights [m9]: Modify the weights of prompts matching keywords
 
+An image node is also included for preparing pose/control images.
+   * FitPose [m9]: Fit a pose image into a target canvas without stretching
+
 ## Overview
 
 You may use these nodes as your positive/negative prompt, or combine them with other prompt nodes.
 
-### Common Connectors
+### Common Connectors (prompt nodes)
 
    * **clip**: Input. Standard clip connector
    * **conditioning_optional**: Input (optional). If you have another prompt node, you may combine the output of both nodes by connecting the CONDITIONING output of the other node into this input.
    * **CONDITIONING**: Output. Standard output. Connect this to your KSampler input.
    * **seed_optional**: Input (optional).  Recommended to convert this to an input when you want the variation to be deterministic based on the seed.  Otherwise, the same seed could produce different variants.
 
-### Common Fields
+### Common Fields (prompt nodes)
 
    * **prompt**: This is the text prompt that will be modified to create a variation. The extent to which the text prompt is modified depends on node settings.
    * **print_output**: When enabled, output will be sent to the command window describing the new prompt.
@@ -56,6 +59,32 @@ A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you ha
      * When a change will take the weight over the max, the change is not made
      * For example, if the weight is 1, the max is 1.2, and the change is +0.3, the weight will be left at 1
 
+## FitPose [m9]
+
+Fits a pose/control image (such as an OpenPose skeleton on a black background) into a target canvas size without stretching.  The image is scaled to fit, centered, and padded with black.
+
+Found under the **image/transform** category.
+
+### Connectors
+
+   * **image**: Input. The pose/control image to fit.
+   * **latent**: Input (optional). When connected, the canvas size is taken from the latent and the width/height fields are ignored.
+   * **IMAGE**: Output. The fitted image.
+   * **width** / **height**: Outputs (INT). The resolved canvas size, handy for wiring into an EmptyLatentImage node so the pipeline stays in sync.
+
+### Fields
+
+   * **subscale**: Margin control.
+     * `1.0` scales the image so it touches the canvas edge exactly, with no margin
+     * `0.8` scales to 80% of that, leaving a proportional margin around the image
+     * Above `1.0` the image overflows and is cropped by the canvas edges
+   * **interpolation**: Resampling filter: lanczos, bicubic, bilinear, or nearest.
+     * `lanczos` (default) is a good general choice
+     * `nearest` preserves hard skeleton lines without anti-aliasing softness
+   * **width** / **height**: The canvas size to fit into, used only when **latent** is not connected.
+
+The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas.  Batches are supported, with each image fitted independently.
+
 ## Example Workflows
 
 Example workflows can be found in the two included example images, that use the **ScramblePrompts [m9]** node.
@@ -91,5 +120,5 @@ In this example, the **ScramblePrompts [m9]** node is used in conjunction with t
 
    * **m9 Prompts for ComfyUI**
      * Works with ComfyUI
-     * Includes nodes for Scramble Prompts and Tweak Weights
+     * Includes nodes for Scramble Prompts, Tweak Weights, and Fit Pose
      * https://github.com/MarcusNyne/m9-prompts-comfyui

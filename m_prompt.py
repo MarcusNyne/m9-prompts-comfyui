@@ -27,7 +27,7 @@ class mPrompt:
 
         return cnt
 
-    def LoadPrompt(self, inFilePath:str) -> None:
+    def LoadPrompt(self, inFilePath:str) -> bool:
         self.Reset()
         try:
             f = open(inFilePath, "rt")
@@ -35,12 +35,12 @@ class mPrompt:
             f.close()
             self.__init_prompt("\n".join(lines))
 
-        except:
+        except OSError:
             return False
 
         return True
 
-    def SavePrompt(self, inFilePath:str, inLog:bool=False) -> None:
+    def SavePrompt(self, inFilePath:str, inLog:bool=False) -> bool:
         if type(self.p_output) is not str:
             return False
 
@@ -52,11 +52,11 @@ class mPrompt:
                 f.write(self.GetLog())
             f.close()
 
-        except:
+        except OSError:
             return False
 
         return True
-    
+
     def GetLog(self):
         log = ""
         for l in self.p_log:
@@ -366,11 +366,11 @@ class mPrompt:
             try:
                 weight = (float)(pw[-1])
                 inPrompt = ":".join(pw[:len(pw)-1]).strip()
-            except:
+            except ValueError:
                 pass
 
         while pcnt>0:
-            weight = weight * 1.05;
+            weight = weight * 1.05
             pcnt -= 1
 
         if weight==0 or inPrompt=="":

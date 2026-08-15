@@ -1,7 +1,7 @@
 [project]
 name = "m9-prompts-comfyui"
-description = "Nodes for modifying a prompt to create prompt variations.\nScramblePrompts [m9]: Reorder prompts, remove prompts, modify weights\nTweakWeights [m9]: Modify the weights of prompts matching keywords"
-version = "1.0.0"
+description = "Nodes for modifying a prompt to create prompt variations, and for fitting a pose image to a target canvas.\nScramblePrompts [m9]: Reorder prompts, remove prompts, modify weights\nTweakWeights [m9]: Modify the weights of prompts matching keywords\nFitPose [m9]: Fit a pose/control image into a latent or explicit canvas size without stretching"
+version = "1.1.0"
 license = { file = "LICENSE" }
 
 [project.urls]

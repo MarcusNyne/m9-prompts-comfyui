@@ -9,6 +9,9 @@ Two custom nodes are included for modifying a prompt to create prompt variations
 An image node is also included for preparing pose/control images.
    * FitPose [m9]: Fit a pose image into a target canvas without stretching
 
+A utility node is included for building file names.
+   * Prefix [m9]: Join name, theme, scene and frame into a single underscore-separated prefix
+
 ## Overview
 
 You may use these nodes as your positive/negative prompt, or combine them with other prompt nodes.
@@ -90,6 +93,28 @@ Found under the **image/transform** category.
 
 The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas, so **placement** only matters once **subscale** moves away from `1.0`.  Batches are supported, with each image fitted independently.
 
+## Prefix [m9]
+
+Builds a single string out of up to four parts, joined with underscores.  Intended for the **filename_prefix** field of a SaveImage node, so a batch of renders can be named consistently.
+
+Found under the **utils** category.
+
+### Connectors
+
+   * **prefix**: Output (STRING). The joined text.  Connect it to the **filename_prefix** input of a SaveImage node (convert that widget to an input first).
+
+### Fields
+
+   * **name** \ **theme** \ **scene** \ **frame**: The four parts, joined in that order.
+     * Each one is optional; leave a field empty and it is skipped, along with its separator
+     * With only **name** filled in, the output has no underscores at all
+     * With **name** and **scene** filled in, the output is `name_scene`
+     * Any of these may be converted to an input and driven by another node
+
+When every field is empty the output is `ComfyUI`, which is the same default SaveImage uses on its own, so an unconfigured node still produces valid file names.
+
+Values are cleaned up before joining: surrounding whitespace is trimmed, and characters that are illegal in a file name (`< > : " / \ | ? *`) are replaced with an underscore.  Note that this also applies to ComfyUI's own `%date:yyyy-MM-dd%` prefix tokens and to forward slashes used for subfolders — both contain characters that get replaced, so build those into the SaveImage field directly rather than through this node.
+
 ## Example Workflows
 
 Example workflows can be found in the two included example images, that use the **ScramblePrompts [m9]** node.
@@ -105,25 +130,3 @@ By adding a seed primitive, and connecting it to **seed_optional**, the node wil
 ## ScramblePromptsExample-2.png
 
 In this example, the **ScramblePrompts [m9]** node is used in conjunction with the existing positive "CLIP Text Encode (prompt)".  The prompts within the text encoder and left as is, and the scrambled prompts are added to them in the final prompt sent to the sampler.
-
-## Help and Feedback
-
-   * **Discord Server**
-     * https://discord.gg/trMfHcTcsG
-
-## m9 Prompts Catalog
-
-   * **Scramble Prompts for Stable Diffusion**
-     * Works with Automatic1111
-     * Reorder, remove, modify weights of prompts
-     * https://github.com/MarcusNyne/sd-scramble-prompts-m9
-
-   * **Tweak Weights for Stable Diffusion**
-     * Works with Automatic1111
-     * Modify prompt weights using keywords
-     * https://github.com/MarcusNyne/sd-tweak-weights-m9
-
-   * **m9 Prompts for ComfyUI**
-     * Works with ComfyUI
-     * Includes nodes for Scramble Prompts, Tweak Weights, and Fit Pose
-     * https://github.com/MarcusNyne/m9-prompts-comfyui

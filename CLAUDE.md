@@ -16,7 +16,12 @@ resize/crop/pad ops live; `image/postprocessing` would be wrong — that naming 
 filters and no longer exists upstream, where those are now `image/filters`):
 
 - `FitPose [m9]` — fit a pose/control image into a latent's (or an explicit) canvas size without
-  stretching, centered on black
+  stretching, placed on black
+
+A fourth node is a string utility, filed under the stock `utils` category alongside the primitive/string
+helpers rather than with the CLIP-encoding nodes:
+
+- `Prefix [m9]` — join name/theme/scene/frame into one underscore-separated filename prefix
 
 The prompt nodes are one of three sibling projects sharing the same prompt-manipulation logic; the other
 two (`sd-scramble-prompts-m9`, `sd-tweak-weights-m9`) target Automatic1111. Keep `m_prompt.py` free of
@@ -45,6 +50,13 @@ from m_fitpose import calc_fit
 print(calc_fit(512, 768, 1216, 832, 1.0))   # -> (555, 832, 330, 0)"
 ```
 
+```bash
+python -c "
+from m_prefix import build_prefix
+print(build_prefix('cara', '', 'alley', ''))   # -> cara_alley
+print(build_prefix())                          # -> ComfyUI"
+```
+
 `mPrompt.TestParse(prompt)` dumps the parsed token dicts, and `LoadPrompt`/`SavePrompt` read and write
 prompt files — both exist for ad-hoc checking and are unused by the nodes.
 
@@ -68,6 +80,8 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
   `conditioning_optional` to the resulting conditioning list so the node composes with other prompt nodes.
 - `m_fitpose.py` — `calc_fit()` (the fit arithmetic) and `target_from_latent()`. No torch/PIL.
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
+- `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
+- `m9_prefix_node.py` — `Prefix_m9`, a thin pass-through to `build_prefix()`.
 
 `__init__.py` merges the `NODE_CLASS_MAPPINGS` / `NODE_DISPLAY_NAME_MAPPINGS` dicts that each `m9_*.py`
 module declares. A new node module must export both and be merged there, or ComfyUI won't see it.
@@ -134,6 +148,19 @@ spatial shape is read, so a latent batch size that differs from the image batch 
 The tensor helpers in `m9_fit_pose_node.py` are **per-frame**: `tensor_to_pil` takes an `image[i]` slice
 (`[H,W,C]`), not the `[B,H,W,C]` batch, and `pil_to_tensor` re-adds a batch dim, so `fit()` collects
 frames and ends with `torch.cat(..., dim=0)`.
+
+### Prefix assembly
+
+`build_prefix` skips empty parts *before* joining, so separators only appear between parts that survive —
+a lone `name` comes back with no underscore at all. `sDefaultPrefix` (`"ComfyUI"`) is the all-empty
+fallback, chosen to match ComfyUI's own default `filename_prefix` so an unconfigured node behaves like an
+untouched SaveImage.
+
+Sanitizing is a **deliberate product decision, made with the tradeoff known**: `sanitize_part` replaces the
+Windows-illegal set plus both path separators, which also flattens `%date:yyyy-MM-dd%` tokens (they contain
+a colon) and defeats `/` subfolder syntax. Replacement is per-character and runs are not collapsed, so
+`"a//b"` yields `"a__b"` — predictable beats tidy here, and it guarantees two halves of a value can never
+silently run together. Don't "fix" the date tokens without asking; the alternative was offered and declined.
 
 ## Known gaps
 

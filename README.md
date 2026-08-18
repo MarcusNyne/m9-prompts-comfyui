@@ -2,49 +2,44 @@
 
 Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI).
 
-Two custom nodes are included for modifying a prompt to create prompt variations.
-   * ScramblePrompts [m9]: Reorder prompts, remove prompts, modify weights
-   * TweakWeights [m9]: Modify the weights of prompts matching keywords
+* **ScramblePrompts [m9]**: Reorder prompts, remove prompts, modify weights
 
-An image node is also included for preparing pose/control images.
-   * FitPose [m9]: Fit a pose image into a target canvas without stretching
+* **TweakWeights [m9]**: Modify the weights of prompts matching keywords
 
-A utility node is included for building file names.
-   * Prefix [m9]: Join name, theme, scene and frame into a single underscore-separated prefix
+* **FitPose [m9]**: Fit a pose image into a target canvas without stretching
 
-## Overview
+* **Prefix [m9]**: Join name, theme, scene and frame into a single underscore-separated prefix
 
-You may use these nodes as your positive/negative prompt, or combine them with other prompt nodes.
+## ScramblePrompts [m9] (conditioning)
 
-### Common Connectors (prompt nodes)
-
-   * **clip**: Input. Standard clip connector
-   * **conditioning_optional**: Input (optional). If you have another prompt node, you may combine the output of both nodes by connecting the CONDITIONING output of the other node into this input.
-   * **CONDITIONING**: Output. Standard output. Connect this to your KSampler input.
-   * **seed_optional**: Input (optional).  Recommended to convert this to an input when you want the variation to be deterministic based on the seed.  Otherwise, the same seed could produce different variants.
-
-### Common Fields (prompt nodes)
-
-   * **prompt**: This is the text prompt that will be modified to create a variation. The extent to which the text prompt is modified depends on node settings.
-   * **print_output**: When enabled, output will be sent to the command window describing the new prompt.
-
-## ScramblePrompts [m9] 
-
-Modifications to the prompt may include:
-   * Changing the order of prompts
-   * Removing prompts
-   * Changing the weight of prompts
+Creates a variation of a text prompt by reordering prompts, removing prompts, and nudging weights up or down.  You may use this node as your positive/negative prompt, or combine with other prompt nodes.
 
 A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you have parenthesis between commas, it is considered a single prompt.  For example:
 - prompt one, prompt two
 - prompt (one), prompt two
 - (prompt, one), prompt two
 
-### Prompt Order
+### Input Connectors
+
+   * **clip**: Input. Standard clip connector
+   * **conditioning_optional**: Input (optional). If you have another prompt node, you may combine the output of both nodes by connecting the CONDITIONING output of the other node into this input.
+   * **seed_optional**: Input (optional).  Connect a seed primitive so the node is reevaluated on each run, rather than ComfyUI reusing its cached result.
+     * The same seed always produces the same variation, so a result you like can be reproduced
+
+### Output Connectors
+
+   * **CONDITIONING**: Output. Standard output. Connect this to your KSampler input.
+
+### Settings
+
+   * **prompt**: This is the text prompt that will be modified to create a variation. The extent to which the text prompt is modified depends on the modifiers below.
+   * **print_output**: When enabled, the modified prompt is sent to the command window.
+
+#### Prompt Order
 
   * **order_prompts_percent**: The percent of prompts to reorder.
 
-### Prompt Reduction
+#### Prompt Reduction
 
    * **remove_prompts_percent**: The number of prompts to remove.
      * prompts are removed entirely
@@ -53,7 +48,7 @@ A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you ha
      * As long as a prompt includes the specified keyword, it will not be removed
      * Comma delimited
 
-### Prompt Weight
+#### Prompt Weight
 
    * **modify_weights_percent**: The percent of prompts that will have the weight changed.
    * **weight_range**: The maximum amount to modify the weight in either direction.
@@ -62,11 +57,44 @@ A 'prompt' is a phrase between commas, but not inside of parenthesis.  If you ha
      * When a change will take the weight over the max, the change is not made
      * For example, if the weight is 1, the max is 1.2, and the change is +0.3, the weight will be left at 1
 
-## FitPose [m9]
+## TweakWeights [m9] (conditioning)
+
+Adjusts the weight of prompts matching your keywords, leaving every other prompt untouched.  Where **ScramblePrompts** varies the whole prompt, this node targets the parts you name.  You may use this node as your positive/negative prompt, or combine with other prompt nodes.
+
+Prompts are split on commas exactly as described for **ScramblePrompts** above, with anything inside parenthesis kept together as a single prompt.
+
+### Input Connectors
+
+   * **clip**: Input. Standard clip connector
+   * **conditioning_optional**: Input (optional). If you have another prompt node, you may combine the output of both nodes by connecting the CONDITIONING output of the other node into this input.
+   * **seed_optional**: Input (optional).  Connect a seed primitive so the node is reevaluated on each run, rather than ComfyUI reusing its cached result.
+     * The same seed always produces the same variation, so a result you like can be reproduced
+
+### Output Connectors
+
+   * **CONDITIONING**: Output. Standard output. Connect this to your KSampler input.
+
+### Settings
+
+   * **prompt**: This is the text prompt containing the prompts to be modified.
+   * **keywords**: A list of keywords identifying which prompts to modify.
+     * Comma delimited
+     * A prompt is modified if it matches any one of the keywords
+     * Matching is case insensitive, and matches anywhere within the prompt, so `hair` also matches `long hair` and `hairband`
+     * When left empty, no weights are changed and the prompt is used as is
+   * **weight_range**: The maximum amount to modify the weight in either direction.
+     * The adjustment is random, anywhere between minus and plus this amount
+     * If a change would take the weight below zero, the weight will be left as is
+   * **max_weight**: Maximum final weight.
+     * When a change will take the weight over the max, the change is not made
+     * For example, if the weight is 1, the max is 1.2, and the change is +0.3, the weight will be left at 1
+   * **print_output**: When enabled, each changed prompt is sent to the command window, along with its weight before and after.
+
+Lora weights are never changed, even when a lora matches one of your keywords.
+
+## FitPose [m9] (image/transform)
 
 Fits a pose/control image (such as an OpenPose skeleton on a black background) into a target canvas size without stretching.  The image is scaled to fit, placed on the canvas, and padded with black.
-
-Found under the **image/transform** category.
 
 ### Connectors
 
@@ -93,11 +121,9 @@ Found under the **image/transform** category.
 
 The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas, so **placement** only matters once **subscale** moves away from `1.0`.  Batches are supported, with each image fitted independently.
 
-## Prefix [m9]
+## Prefix [m9] (utils)
 
 Builds a single string out of up to four parts, joined with underscores.  Intended for the **filename_prefix** field of a SaveImage node, so a batch of renders can be named consistently.
-
-Found under the **utils** category.
 
 ### Connectors
 
@@ -119,7 +145,7 @@ Values are cleaned up before joining: surrounding whitespace is trimmed, and cha
 
 Example workflows can be found in the two included example images, that use the **ScramblePrompts [m9]** node.
 
-## ScramblePromptsExample-1.png
+### ScramblePromptsExample-1.png
 
 In this example workflow, the positive "CLIP Text Encode (prompt)" is replaced with a **ScramblePrompts [m9]** node.  ComfyUI will cache the results of nodes to make generation more efficient.  If you use this node without an input into **seed_optional**, the prompts will only be randomized the first time, with the results cached and reused.
 
@@ -127,6 +153,8 @@ By adding a seed primitive, and connecting it to **seed_optional**, the node wil
 
 **print_output** is enabled, allowing you to see the results of prompt scrambling in the console window.
 
-## ScramblePromptsExample-2.png
+### ScramblePrompts_m9_00001_.png
 
-In this example, the **ScramblePrompts [m9]** node is used in conjunction with the existing positive "CLIP Text Encode (prompt)".  The prompts within the text encoder and left as is, and the scrambled prompts are added to them in the final prompt sent to the sampler.
+In this example, the **ScramblePrompts [m9]** node is used in conjunction with the existing positive "CLIP Text Encode (prompt)".  The prompts within the text encoder are left as is, and the scrambled prompts are added to them in the final prompt sent to the sampler.
+
+The file name comes from the use of **Prefix [m9]**.

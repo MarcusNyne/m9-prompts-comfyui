@@ -88,7 +88,9 @@ class ScramblePrompts_m9:
 
     FUNCTION = "encode"
 
-    CATEGORY = "M9 Prompts"
+    # conditioning is where the stock CLIPTextEncode / Conditioning* nodes live, so these
+    # sit beside the encoder they replace rather than under a package-named menu.
+    CATEGORY = "conditioning"
 
     def encode(self, clip, prompt, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight, print_output, conditioning_optional=None, seed_optional=None):
         mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)
@@ -138,7 +140,9 @@ class TweakWeights_m9:
 
     FUNCTION = "encode"
 
-    CATEGORY = "M9 Prompts"
+    # conditioning is where the stock CLIPTextEncode / Conditioning* nodes live, so these
+    # sit beside the encoder they replace rather than under a package-named menu.
+    CATEGORY = "conditioning"
 
     def encode(self, clip, prompt, keywords, weight_range, max_weight, print_output, conditioning_optional=None, seed_optional=None):
         mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)

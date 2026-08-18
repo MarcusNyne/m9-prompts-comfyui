@@ -4,16 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A ComfyUI custom-node package (pure Python, no build step, no test suite). Two nodes sit under the
-`M9 Prompts` category and rewrite a text prompt before CLIP-encoding it:
+A ComfyUI custom-node package (pure Python, no build step, no test suite). Every node is filed under a
+**stock ComfyUI category**, never a package-named menu — the package is discovered by the `[m9]` suffix on
+the node name, not by a branded submenu. That's a deliberate product decision: people look for a node by
+what it does, so it has to sit next to the stock nodes it works with.
+
+Two nodes rewrite a text prompt before CLIP-encoding it. They take `STRING` + `CLIP` and return
+`CONDITIONING` — the `CLIPTextEncode` signature — so they live in `conditioning` beside the encoder they
+replace, alongside the stock `Conditioning*` ops. Not `advanced/conditioning`: upstream reserves that for
+model-specific and low-level encoders (`CLIPTextEncodeSDXL`, `ConditioningZeroOut`), and these are ordinary
+text encoders with extra knobs.
 
 - `ScramblePrompts [m9]` — reorder, remove, and randomly nudge weights
 - `TweakWeights [m9]` — nudge weights of prompts matching keywords
 
-A third node is an image op, deliberately filed under the stock `image/transform` category rather than
-`M9 Prompts` so it's discoverable where people look for image nodes (`image/transform` is where the stock
-resize/crop/pad ops live; `image/postprocessing` would be wrong — that naming is for after-generation
-filters and no longer exists upstream, where those are now `image/filters`):
+A third node is an image op, filed under the stock `image/transform` category so it's discoverable where
+people look for image nodes (`image/transform` is where the stock resize/crop/pad ops live;
+`image/postprocessing` would be wrong — that naming is for after-generation filters and no longer exists
+upstream, where those are now `image/filters`):
 
 - `FitPose [m9]` — fit a pose/control image into a latent's (or an explicit) canvas size without
   stretching, placed on black
@@ -23,9 +31,25 @@ helpers rather than with the CLIP-encoding nodes:
 
 - `Prefix [m9]` — join name/theme/scene/frame into one underscore-separated filename prefix
 
-The prompt nodes are one of three sibling projects sharing the same prompt-manipulation logic; the other
-two (`sd-scramble-prompts-m9`, `sd-tweak-weights-m9`) target Automatic1111. Keep `m_prompt.py` free of
-ComfyUI imports so it stays portable across them.
+Changing a `CATEGORY` does not break saved workflows — ComfyUI serializes nodes by their
+`NODE_CLASS_MAPPINGS` key (`ScramblePrompts_m9`), not by category or display name.
+
+`m_prompt.py` must stay free of ComfyUI imports — stdlib only. That is what keeps the prompt logic
+directly runnable in this checkout, where torch/numpy/PIL are unavailable (see Running / testing).
+Anything ComfyUI-specific belongs in `m9_prompt_nodes.py`.
+
+## Conventions
+
+### No references to the sibling projects
+
+**As of 2026-08-17, project artifacts must not mention the deprecated sibling Automatic1111 projects
+(`sd-scramble-prompts-m9`, `sd-tweak-weights-m9`) or the UI they target.** This covers everything in the
+repo: README, source and comments, `pyproject.toml` metadata, specs under `.claude/`, commit messages, and
+release notes. Do not reintroduce such a reference when editing existing text either.
+
+Those repos are being deprecated. This one no longer tracks them: shared logic is not ported out, and
+their behavior is not a constraint on anything changed here. This file is the sole exception to the rule —
+it has to name what it excludes in order to be enforceable.
 
 ## Running / testing
 
@@ -108,14 +132,19 @@ Every transform appends to `p_log` (`__log_header` for section lines starting wi
 indented per-prompt lines); `GetLog()` renders it. `ScramblePrompts` prints the generated text while
 `TweakWeights` prints the log — that asymmetry is intentional.
 
-### Seeding caveat
+### Seeding
 
-`random.seed(self.seed)` is called immediately before *every* individual random draw rather than once per
-run. With `seed_optional` connected (a fixed int) this makes each draw return the same value, which means:
-`ScrambleOrder` picks `r1 == r2` on every attempt and bails out without reordering anything, and
-`ScrambleWeights` applies an identical delta to every selected prompt. Randomization only varies when
-`seed_optional` is left unconnected (`None`, which reseeds from entropy). Any change to seeding behavior
-should preserve determinism for a given seed while restoring variation *within* a run.
+`mPrompt.__init__` builds one private generator, `self.rng = random.Random(inSeed)`, and every transform
+draws from it. Two invariants hold and both are easy to break:
+
+- **Seed once per object, never per draw.** Seeding immediately before each individual draw rewinds the
+  sequence every time, so every draw returns the same number. That was the behavior until 2026-08-17, and
+  it silently disabled things: `ScrambleOrder` drew `r1 == r2` on every attempt and bailed out without
+  reordering anything, and `ScrambleWeights`/`TweakWeights` applied one identical delta to every selected
+  prompt. A fixed seed must reproduce a run exactly while still varying *within* the run.
+- **Draw from `self.rng`, not the `random` module.** Module-level `random.seed()` would reset the
+  process-wide generator that ComfyUI and every other custom node share. `random.Random(None)` seeds from
+  entropy, so an unconnected `seed_optional` stays fully random.
 
 ### Fit geometry
 

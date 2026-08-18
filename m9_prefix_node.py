@@ -22,7 +22,7 @@ class Prefix_m9:
     FUNCTION = "build"
 
     # utils is where the stock string/primitive helpers live, so this sits next to the
-    # other plumbing nodes rather than under M9 Prompts with the CLIP-encoding ones.
+    # other plumbing nodes rather than in conditioning with the CLIP-encoding ones.
     CATEGORY = "utils"
 
     def build(self, name="", theme="", scene="", frame=""):

@@ -7,6 +7,13 @@ class mPrompt:
 
     def __init__(self, inSeed=None, inPrompt=None) -> None:
         self.seed = inSeed
+        # Seed once, here, and draw from a private generator for the life of this object.
+        # Seeding before each individual draw would rewind the sequence every time, so every
+        # draw would return the same number (identical weight deltas, r1==r2 in ScrambleOrder).
+        # A private Random also keeps a caller-supplied seed from resetting the global RNG,
+        # which is shared with the rest of the process.  Random(None) seeds from entropy, so
+        # an unseeded mPrompt stays fully random.
+        self.rng = random.Random(inSeed)
         self.Reset()
         if inPrompt is not None:
             self.__init_prompt(inPrompt)
@@ -77,13 +84,11 @@ class mPrompt:
         if inLimit==0:
             return
         if inLimit is None:
-            random.seed(self.seed)
-            random.shuffle(self.p_prompts)
+            self.rng.shuffle(self.p_prompts)
             self.__log_header("All prompts reordered")
         elif type(inLimit) is int:
             if inVariance is not None:
-                random.seed(self.seed)
-                inLimit += random.randint(0, inVariance*2) - inVariance
+                inLimit += self.rng.randint(0, inVariance*2) - inVariance
                 inLimit = max(inLimit, 0)
 
             ln = len(self.p_prompts)
@@ -94,10 +99,8 @@ class mPrompt:
                 r2=0
                 try_cnt = 0
                 while try_cnt<ln*3 and (r1==r2 or pmap[r1] in reordered):
-                    random.seed(self.seed)
-                    r1 = random.randrange(0, ln)
-                    random.seed(self.seed)
-                    r2 = random.randrange(0, ln)
+                    r1 = self.rng.randrange(0, ln)
+                    r2 = self.rng.randrange(0, ln)
                     try_cnt += 1
                 if try_cnt>=ln*3:
                     break
@@ -142,15 +145,13 @@ class mPrompt:
             return
 
         target = "prompt" if inIsLora is False else "lora"
-        random.seed(self.seed)
-        random.shuffle(pmap)
+        self.rng.shuffle(pmap)
         if inLimit is None:
             self.__log_header("All {target} weights changed ({range:0.1f})".format(target=target, range=inRange))
         else:
             inLimit = min(inLimit, ln)
             if inVariance is not None:
-                random.seed(self.seed)
-                inLimit += random.randint(0, inVariance*2) - inVariance
+                inLimit += self.rng.randint(0, inVariance*2) - inVariance
                 inLimit = max(inLimit, 0)
             self.__log_header("{limit} {target} weights changed ({range:0.1f})".format(target=target, limit=inLimit, range=inRange))
             pmap = pmap[:inLimit]
@@ -207,8 +208,7 @@ class mPrompt:
         if (inMinInput is not None and inWeight<inMinInput) or (inMaxInput is not None and inWeight>inMaxInput):
             return inWeight
 
-        random.seed(self.seed)
-        mod = (random.random() * inRange * 2)-inRange
+        mod = (self.rng.random() * inRange * 2)-inRange
         if inMinOutput is not None and (inWeight+mod) < inMinOutput:
             return inWeight
         if inMaxOutput is not None and (inWeight+mod) > inMaxOutput:
@@ -243,12 +243,10 @@ class mPrompt:
             if 'lora' not in self.p_prompts[x]:
                 pmap.append(x)
 
-        random.seed(self.seed)
-        random.shuffle(pmap)
+        self.rng.shuffle(pmap)
 
         if inRange is not None:
-            random.seed(self.seed)
-            inTarget += random.randint(1, inRange*2) - inRange
+            inTarget += self.rng.randint(1, inRange*2) - inRange
         inTarget = min(max(inTarget, 1), len(pmap)-1)
 
         pmap = pmap[:inTarget]

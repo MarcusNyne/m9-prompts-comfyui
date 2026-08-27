@@ -21,9 +21,10 @@ class Prefix_m9:
 
     FUNCTION = "build"
 
-    # utils is where the stock string/primitive helpers live, so this sits next to the
-    # other plumbing nodes rather than in conditioning with the CLIP-encoding ones.
-    CATEGORY = "utils"
+    # text is where upstream keeps its own string ops (Replace Text, Concatenate Text,
+    # the Regex* nodes) as of ComfyUI v0.34.0; on older builds that menu was utils/string.
+    # This is a plain text node, so it belongs with them rather than in utils.
+    CATEGORY = "text"
 
     def build(self, name="", theme="", scene="", frame=""):
         return (build_prefix(name, theme, scene, frame), )

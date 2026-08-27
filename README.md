@@ -12,6 +12,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **Prefix [m9]**: Join name, theme, scene and frame into a single underscore-separated prefix
 
+* **StepReplace [m9]**: Rewrite text with up to five search-and-replace steps, with random { a | b } choices
+
 ## ScramblePrompts [m9] (conditioning)
 
 Creates a variation of a text prompt by reordering prompts, removing prompts, and nudging weights up or down.  You may use this node as your positive/negative prompt, or combine with other prompt nodes.
@@ -148,7 +150,7 @@ Fits a pose/control image (such as an OpenPose skeleton on a black background) i
 
 The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas, so **placement** only matters once **subscale** moves away from `1.0`.  Batches are supported, with each image fitted independently.
 
-## Prefix [m9] (utils)
+## Prefix [m9] (text)
 
 Builds a single string out of up to four parts, joined with underscores.  Intended for the **filename_prefix** field of a SaveImage node, so a batch of renders can be named consistently.
 
@@ -167,6 +169,55 @@ Builds a single string out of up to four parts, joined with underscores.  Intend
 When every field is empty the output is `ComfyUI`, which is the same default SaveImage uses on its own, so an unconfigured node still produces valid file names.
 
 Values are cleaned up before joining: surrounding whitespace is trimmed, and characters that are illegal in a file name (`< > : " / \ | ? *`) are replaced with an underscore.  Note that this also applies to ComfyUI's own `%date:yyyy-MM-dd%` prefix tokens and to forward slashes used for subfolders — both contain characters that get replaced, so build those into the SaveImage field directly rather than through this node.
+
+## StepReplace [m9] (text)
+
+Rewrites a text prompt with up to five search-and-replace steps, and collapses any `{ one | two }` choice it meets along the way down to a single randomly picked option.  Useful for prompt templates: keep the wording in one node, and swap placeholders such as `[SUBJECT]` or `[OUTFIT]` for the text you actually want, or for a random pick out of a short list.
+
+### Connectors
+
+   * **text**: Input (STRING). The text to rewrite.  This is an input rather than a field, so the text lives in whatever node feeds it -- a primitive, another prompt node, or any node that outputs a string.
+   * **seed_optional**: Input (INT, optional). Seeds the random choices.  See below.
+   * **text**: Output (STRING). The rewritten text.  Feed it to a CLIP Text Encode node, or on to another text node.
+
+### Fields
+
+   * **search_1** \ **replace_1** ... **search_5** \ **replace_5**: Five search-and-replace pairs, applied in order.  **search** is a single line, **replace** is multi-line.
+   * **print_output**: Prints what each step did, and the final text, to the console window.
+
+### Steps run top to bottom
+
+Each step works on the result of the step before it, so a later **search** can find text that an earlier **replace** produced:
+
+| step | pair | result |
+|---|---|---|
+| text | | `a flower in a vase` |
+| step 1 | `flower` -> `rose` | `a rose in a vase` |
+| step 2 | `rose` -> `red rose` | `a red rose in a vase` |
+
+   * A step with an empty **search** is skipped, so you can use only as many of the five as you need
+   * An empty **replace** deletes the search term
+   * Every occurrence is replaced, not just the first
+
+Search terms are matched literally and are not case sensitive, so `cat` also finds `Cat` and `CAT`.  A term that begins or ends with a letter, digit or underscore only matches whole words -- `cat` does not find the `cat` inside `category`.  A term wrapped in anything else matches wherever it appears, so placeholders like `[FIND_THIS]` and terms like `<lora:foo:0.8>` work exactly as written.
+
+### Random choices
+
+Anywhere in the incoming text, or in a **replace** field, `{ one | two | three }` collapses to exactly one of the options:
+
+   * Options are trimmed, so `{ a | b }` and `{a|b}` are the same thing
+   * An empty option is allowed: `{ a | }` picks either `a` or nothing at all
+   * Choices may be nested: `{ a | { b | c } }`
+   * Each occurrence draws on its own, so one replacement used three times can give three different results
+   * Braces without a `|` are left alone, and `\{` `\|` `\}` are literal characters rather than choice syntax
+
+Choices are resolved as the text is built, not at the end, so a later **search** can also match the option a choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
+
+### Seeding
+
+   * With **seed_optional** left unconnected (or set to `0`), a fresh random seed is used on every run, and the node is re-evaluated each time rather than serving a cached result
+   * With any other seed the run is fully reproducible: the same seed and the same fields always produce the same text
+   * Connect a seed primitive to reproduce a specific result later from the numbers saved in the workflow
 
 ## Example Workflows
 

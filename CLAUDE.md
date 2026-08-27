@@ -20,9 +20,10 @@ text encoders with extra knobs.
 
 Each of those has a text-in/text-out variant that runs the same transforms with no `clip` and no
 `CONDITIONING`, so the rewritten prompt can feed a stock encoder or be chained into another prompt node.
-They are filed under `utils` with the other string helpers, not `conditioning` — without a CLIP input they
-are string ops, not encoders. Their `prompt` is `forceInput` rather than a widget: the text belongs to
-whatever node feeds them, which is the point of the variant.
+They are filed under `utils`, not `conditioning` — without a CLIP input they are not encoders. Not `text`
+either, where the stock string ops live: these are prompt transforms that happen to speak strings, so they
+belong with the plumbing rather than with the general-purpose text nodes. Their `prompt` is `forceInput`
+rather than a widget: the text belongs to whatever node feeds them, which is the point of the variant.
 
 - `ScramblePromptsText [m9]` / `TweakWeightsText [m9]`
 
@@ -34,10 +35,15 @@ upstream, where those are now `image/filters`):
 - `FitPose [m9]` — fit a pose/control image into a latent's (or an explicit) canvas size without
   stretching, placed on black
 
-One more node is a string utility, filed under the stock `utils` category alongside the primitive/string
-helpers rather than with the CLIP-encoding nodes:
+Two more nodes are plain text ops, filed under the stock `text` category — that is where upstream keeps
+its own string nodes (`StringReplace`/"Replace Text", `StringConcatenate`, the `Regex*` nodes) as of
+ComfyUI v0.34.0. On builds older than the rename that menu was `utils/string`, and the stock primitives
+have moved along too (`utils/primitive` → `utilities/primitive`), so plain `utils` is no longer where a
+general-purpose string node belongs:
 
 - `Prefix [m9]` — join name/theme/scene/frame into one underscore-separated filename prefix
+- `StepReplace [m9]` — rewrite text through five ordered search/replace steps, resolving `{ a | b }`
+  choices as it goes
 
 Changing a `CATEGORY` does not break saved workflows — ComfyUI serializes nodes by their
 `NODE_CLASS_MAPPINGS` key (`ScramblePrompts_m9`), not by category or display name.
@@ -89,6 +95,13 @@ print(build_prefix('cara', '', 'alley', ''))   # -> cara_alley
 print(build_prefix())                          # -> ComfyUI"
 ```
 
+```bash
+python -c "
+from m_stepreplace import step_replace
+pairs = [('flower', '{rose|tulip}'), ('rose', 'red rose'), ('', '')]
+print(step_replace('a flower in a vase', pairs, inSeed=7))"
+```
+
 `mPrompt.TestParse(prompt)` dumps the parsed token dicts, and `LoadPrompt`/`SavePrompt` read and write
 prompt files — both exist for ad-hoc checking and are unused by the nodes.
 
@@ -117,6 +130,11 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
 - `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
 - `m9_prefix_node.py` — `Prefix_m9`, a thin pass-through to `build_prefix()`.
+- `m_stepreplace.py` — `step_replace()` plus `apply_step()`, `expand_choices()` and `build_pattern()`.
+  Pure stdlib, so it runs here directly.
+- `m9_step_replace_node.py` — `StepReplace_m9`. Its search/replace widgets and the pair list it hands to
+  `step_replace()` are both generated from `sStepCount`, so the two can't drift; the widgets arrive back as
+  `**kwargs` for the same reason. `step_replace()` itself takes any number of pairs.
 
 `__init__.py` merges the `NODE_CLASS_MAPPINGS` / `NODE_DISPLAY_NAME_MAPPINGS` dicts that each `m9_*.py`
 module declares. A new node module must export both and be merged there, or ComfyUI won't see it.
@@ -165,6 +183,13 @@ variation per run means driving `seed_optional` from a seed primitive — which 
 users to do. Adding `"control_after_generate": True` to the widget spec would give the node its own
 randomize control and remove that requirement.
 
+`StepReplace_m9` **deliberately inverts that convention**: there `0` means *no seed given*, so it passes
+`None` to `random.Random` and seeds from entropy. That only works because the class also defines
+`IS_CHANGED`, which returns `float("nan")` for seed 0 — ComfyUI folds that value into the node's cache key
+and NaN never compares equal to itself, so the node re-executes every queue. Delete `IS_CHANGED` and the
+node silently pins itself to its first roll forever. Any non-zero seed is returned from `IS_CHANGED`
+unchanged, leaving normal input-based caching intact and the run reproducible.
+
 ### Fit geometry
 
 `calc_fit` returns `(new_w, new_h, x_offset, y_offset)` and is total — it clamps rather than raising, so a
@@ -209,6 +234,31 @@ Windows-illegal set plus both path separators, which also flattens `%date:yyyy-M
 a colon) and defeats `/` subfolder syntax. Replacement is per-character and runs are not collapsed, so
 `"a//b"` yields `"a__b"` — predictable beats tidy here, and it guarantees two halves of a value can never
 silently run together. Don't "fix" the date tokens without asking; the alternative was offered and declined.
+
+### Step replacement
+
+`step_replace()` runs the pairs top to bottom over one running string, and **expands choices as it goes**:
+the incoming text is expanded before step 1, and each replacement is expanded at the moment it is inserted.
+That ordering is the feature — it is what lets `search_2` match text that `replace_1` produced, including
+the option a `{ a | b }` picked. Expanding once at the end instead would break that chaining.
+
+Four details there are load-bearing:
+
+- **Each occurrence draws its own choice.** `apply_step` passes a function to `Pattern.subn`, so a
+  replacement of `{ rose | tulip }` against three hits can yield three different flowers. Expanding the
+  replacement once and reusing the string would quietly make them identical.
+- **One generator per call.** `step_replace` builds a single `random.Random(inSeed)` and threads it through
+  every expansion — same invariant as `mPrompt`, and just as easy to break by seeding inside a loop.
+- **Braces without a `|` are left alone.** `{like_this}` survives verbatim, so text that merely happens to
+  use braces isn't mangled. The cost is that a pipe-less inner brace also blocks an enclosing choice
+  (`{ a | {b} }` stays literal); the real nesting case, `{ a | { b | c } }`, resolves innermost-first.
+  `\{`, `\|` and `\}` are protected through `@@1@@`/`@@2@@`/`@@3@@` placeholders, the same trick
+  `m_prompt.py` uses for escaped parenthesis, and come back out as bare characters.
+- **Word boundaries are conditional.** `build_pattern` escapes the term, then adds `\b` only at an end
+  whose own character is a word character. So `cat` won't match inside `category`, while `[FIND_THIS]` and
+  `<lora:foo:0.8>` still match anywhere — an unconditional `\b` would never match those at all. Matching
+  is case-insensitive, and both fields are `strip()`ed (a whitespace-only search is what "skip this step"
+  means).
 
 ## Known gaps
 

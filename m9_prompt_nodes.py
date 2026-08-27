@@ -205,8 +205,9 @@ class ScramblePromptsText_m9:
 
     FUNCTION = "scramble"
 
-    # utils is where the stock string/primitive helpers live, so the text-only variants sit
-    # with the other plumbing nodes rather than in conditioning with the encoding ones.
+    # utils, not conditioning -- without a CLIP input these aren't encoders.  Not the stock
+    # text category either: these are prompt transforms that happen to speak strings, so they
+    # sit with the plumbing rather than with the general-purpose text ops.
     CATEGORY = "utils"
 
     def scramble(self, prompt, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight, print_output, seed_optional=None):
@@ -240,8 +241,9 @@ class TweakWeightsText_m9:
 
     FUNCTION = "tweak"
 
-    # utils is where the stock string/primitive helpers live, so the text-only variants sit
-    # with the other plumbing nodes rather than in conditioning with the encoding ones.
+    # utils, not conditioning -- without a CLIP input these aren't encoders.  Not the stock
+    # text category either: these are prompt transforms that happen to speak strings, so they
+    # sit with the plumbing rather than with the general-purpose text ops.
     CATEGORY = "utils"
 
     def tweak(self, prompt, keywords, weight_range, max_weight, print_output, seed_optional=None):

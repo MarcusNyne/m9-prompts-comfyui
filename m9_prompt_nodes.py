@@ -64,6 +64,24 @@ class Color9:
         return ""
 
 
+# The transforms are pulled out of the node classes so the CONDITIONING nodes and their
+# text-only variants below run the exact same code.  Percentages become absolute counts
+# here -- mPrompt itself only ever deals in counts.
+def apply_scramble(mp, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight):
+    cnt_prompts = mp.CountTokens('prompt')
+    if order_prompts_percent>0:
+        mp.ScrambleOrder(inLimit=int((order_prompts_percent*cnt_prompts)/100))
+    if remove_prompts_percent>0:
+        mp.ScrambleReduction(inTarget=int((remove_prompts_percent*cnt_prompts)/100), inKeepTokens=keep_prompts)
+    if modify_weights_percent>0:
+        mp.ScrambleWeights(weight_range, inIsLora=False, inLimit=int((modify_weights_percent*cnt_prompts)/100), inMinOutput=0, inMaxOutput=max_weight)
+
+
+def apply_tweak(mp, keywords, weight_range, max_weight):
+    if keywords!="":
+        mp.TweakWeights(keywords, inRange=weight_range, inLoraRange=0, inMaxOutput=max_weight)
+
+
 class ScramblePrompts_m9:
     def __init__(self):
         pass
@@ -94,14 +112,7 @@ class ScramblePrompts_m9:
 
     def encode(self, clip, prompt, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight, print_output, conditioning_optional=None, seed_optional=None):
         mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)
-        cnt_prompts = mp.CountTokens('prompt')
-        if order_prompts_percent>0:
-            mp.ScrambleOrder(inLimit=int((order_prompts_percent*cnt_prompts)/100))
-        if remove_prompts_percent>0:
-            mp.ScrambleReduction(inTarget=int((remove_prompts_percent*cnt_prompts)/100), inKeepTokens=keep_prompts)
-        if modify_weights_percent>0:
-            mp.ScrambleWeights(weight_range, inIsLora=False, inLimit=int((modify_weights_percent*cnt_prompts)/100), inMinOutput=0, inMaxOutput=max_weight)
-            
+        apply_scramble(mp, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight)
         final_text = mp.Generate()
         if print_output:
             clr = Color9("ScramblePrompts [m9]")
@@ -146,9 +157,7 @@ class TweakWeights_m9:
 
     def encode(self, clip, prompt, keywords, weight_range, max_weight, print_output, conditioning_optional=None, seed_optional=None):
         mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)
-        if keywords!="":
-            mp.TweakWeights(keywords, inRange=weight_range, inLoraRange=0, inMaxOutput=max_weight)
-            
+        apply_tweak(mp, keywords, weight_range, max_weight)
         final_text = mp.Generate()
         if print_output:
             clr = Color9("TweakWeights [m9]")
@@ -169,17 +178,101 @@ class TweakWeights_m9:
     #    return ""
 
 
+# The two nodes below are text-in / text-out variants of the nodes above: same transforms,
+# no CLIP and no CONDITIONING, so the rewritten prompt can be fed to any encoder or chained
+# into another prompt node.  `prompt` is forceInput rather than a widget -- the text lives in
+# whatever node feeds it, which is the whole point of the variant.
+class ScramblePromptsText_m9:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"prompt": ("STRING", {"forceInput": True}),
+                                "order_prompts_percent": ("INT", {"default": 20, "min": 0, "max": 100, "step": 5, "display": "slider"}),
+                                "remove_prompts_percent": ("INT", {"default": 0, "min": 0, "max": 30, "step": 5, "display": "slider"}),
+                                "keep_prompts": ("STRING", {"multiline": False}),
+                                "modify_weights_percent": ("INT", {"default": 20, "min": 0, "max": 100, "step": 5, "display": "slider"}),
+                                "weight_range": ("FLOAT", {"default": 0.5, "min": 0, "max": 2, "step": 0.1}),
+                                "max_weight": ("FLOAT", {"default": 1.9, "min": 0, "max": 3, "step": 0.1}),
+                                "print_output": ("BOOLEAN", {"default": False}),
+                            },
+                "optional":{"seed_optional": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                            }}
+
+    RETURN_TYPES = ("STRING", )
+    RETURN_NAMES = ("prompt", )
+
+    FUNCTION = "scramble"
+
+    # utils is where the stock string/primitive helpers live, so the text-only variants sit
+    # with the other plumbing nodes rather than in conditioning with the encoding ones.
+    CATEGORY = "utils"
+
+    def scramble(self, prompt, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight, print_output, seed_optional=None):
+        mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)
+        apply_scramble(mp, order_prompts_percent, remove_prompts_percent, keep_prompts, modify_weights_percent, weight_range, max_weight)
+        final_text = mp.Generate()
+        if print_output:
+            clr = Color9("ScramblePromptsText [m9]")
+            clr.Header()
+            clr.Print(final_text, "LIGHTVIOLET")
+        return (final_text, )
+
+
+class TweakWeightsText_m9:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"prompt": ("STRING", {"forceInput": True}),
+                                "keywords": ("STRING", {"multiline": False}),
+                                "weight_range": ("FLOAT", {"default": 0.5, "min": 0, "max": 2, "step": 0.1}),
+                                "max_weight": ("FLOAT", {"default": 1.9, "min": 0, "max": 3, "step": 0.1}),
+                                "print_output": ("BOOLEAN", {"default": False}),
+                            },
+                "optional":{"seed_optional": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                            }}
+
+    RETURN_TYPES = ("STRING", )
+    RETURN_NAMES = ("prompt", )
+
+    FUNCTION = "tweak"
+
+    # utils is where the stock string/primitive helpers live, so the text-only variants sit
+    # with the other plumbing nodes rather than in conditioning with the encoding ones.
+    CATEGORY = "utils"
+
+    def tweak(self, prompt, keywords, weight_range, max_weight, print_output, seed_optional=None):
+        mp = mPrompt(inSeed=seed_optional, inPrompt=prompt)
+        apply_tweak(mp, keywords, weight_range, max_weight)
+        final_text = mp.Generate()
+        if print_output:
+            clr = Color9("TweakWeightsText [m9]")
+            clr.Header()
+            if keywords=="":
+                clr.Warning("Keywords is empty.  Specify keywords to tweak weights (comma delimited).")
+            else:
+                clr.Print(mp.GetLog(), "LIGHTVIOLET")
+        return (final_text, )
+
+
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
     "ScramblePrompts_m9": ScramblePrompts_m9,
-    "TweakWeights_m9": TweakWeights_m9
+    "TweakWeights_m9": TweakWeights_m9,
+    "ScramblePromptsText_m9": ScramblePromptsText_m9,
+    "TweakWeightsText_m9": TweakWeightsText_m9
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ScramblePrompts_m9": "ScramblePrompts [m9]",
-    "TweakWeights_m9": "TweakWeights [m9]"
+    "TweakWeights_m9": "TweakWeights [m9]",
+    "ScramblePromptsText_m9": "ScramblePromptsText [m9]",
+    "TweakWeightsText_m9": "TweakWeightsText [m9]"
 }
 
 Color9("m9 Prompts").Message("Loaded")

@@ -6,6 +6,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **TweakWeights [m9]**: Modify the weights of prompts matching keywords
 
+* **ScramblePromptsText [m9]** / **TweakWeightsText [m9]**: The same two transforms as text in, text out
+
 * **FitPose [m9]**: Fit a pose image into a target canvas without stretching
 
 * **Prefix [m9]**: Join name, theme, scene and frame into a single underscore-separated prefix
@@ -91,6 +93,31 @@ Prompts are split on commas exactly as described for **ScramblePrompts** above, 
    * **print_output**: When enabled, each changed prompt is sent to the command window, along with its weight before and after.
 
 Lora weights are never changed, even when a lora matches one of your keywords.
+
+## ScramblePromptsText [m9] / TweakWeightsText [m9] (utils)
+
+Text-in, text-out versions of the two nodes above.  They apply exactly the same transforms, but take a
+STRING input and return the rewritten prompt as a STRING, with no **clip** and no CONDITIONING.
+
+Use these when you want the rewritten text before it is encoded: to feed a stock "CLIP Text Encode
+(prompt)" node, to chain the two transforms together (scramble the whole prompt, then tweak the weights of
+the parts you name), or to send the result to a preview/save node so you can see what was generated.
+
+### Input Connectors
+
+   * **prompt**: Input. The text prompt to modify.  This is an input connector rather than a text field, so
+     the text itself lives in whatever node feeds it — a primitive string node, another prompt node, or one
+     of these nodes.
+   * **seed_optional**: Input (optional).  Works exactly as it does on the CONDITIONING nodes.
+
+### Output Connectors
+
+   * **prompt**: Output (STRING). The modified prompt.
+
+### Settings
+
+The settings are identical to **ScramblePrompts [m9]** and **TweakWeights [m9]** respectively; see those
+sections above.  **print_output** sends the same information to the command window.
 
 ## FitPose [m9] (image/transform)
 

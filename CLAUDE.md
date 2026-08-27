@@ -18,7 +18,15 @@ text encoders with extra knobs.
 - `ScramblePrompts [m9]` — reorder, remove, and randomly nudge weights
 - `TweakWeights [m9]` — nudge weights of prompts matching keywords
 
-A third node is an image op, filed under the stock `image/transform` category so it's discoverable where
+Each of those has a text-in/text-out variant that runs the same transforms with no `clip` and no
+`CONDITIONING`, so the rewritten prompt can feed a stock encoder or be chained into another prompt node.
+They are filed under `utils` with the other string helpers, not `conditioning` — without a CLIP input they
+are string ops, not encoders. Their `prompt` is `forceInput` rather than a widget: the text belongs to
+whatever node feeds them, which is the point of the variant.
+
+- `ScramblePromptsText [m9]` / `TweakWeightsText [m9]`
+
+A separate node is an image op, filed under the stock `image/transform` category so it's discoverable where
 people look for image nodes (`image/transform` is where the stock resize/crop/pad ops live;
 `image/postprocessing` would be wrong — that naming is for after-generation filters and no longer exists
 upstream, where those are now `image/filters`):
@@ -26,7 +34,7 @@ upstream, where those are now `image/filters`):
 - `FitPose [m9]` — fit a pose/control image into a latent's (or an explicit) canvas size without
   stretching, placed on black
 
-A fourth node is a string utility, filed under the stock `utils` category alongside the primitive/string
+One more node is a string utility, filed under the stock `utils` category alongside the primitive/string
 helpers rather than with the CLIP-encoding nodes:
 
 - `Prefix [m9]` — join name/theme/scene/frame into one underscore-separated filename prefix
@@ -98,10 +106,13 @@ Every node follows the same two-layer split: a dependency-free logic module (`m_
 ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anything testable here.
 
 - `m_prompt.py` — `mPrompt`, all the prompt logic. Stateless w.r.t. ComfyUI.
-- `m9_prompt_nodes.py` — the ComfyUI node classes plus `Color9`, an ANSI-color console printer used for
-  the `print_output` field. Both nodes' `encode()` follow the same shape: build an `mPrompt`, apply
-  transforms, `Generate()`, `clip.tokenize` + `encode_from_tokens(..., return_pooled=True)`, then prepend
-  `conditioning_optional` to the resulting conditioning list so the node composes with other prompt nodes.
+- `m9_prompt_nodes.py` — the four prompt node classes plus `Color9`, an ANSI-color console printer used
+  for the `print_output` field. The transforms live in the module-level `apply_scramble()` /
+  `apply_tweak()` helpers, which both the `CONDITIONING` node and its `Text` variant call, so the pair can
+  never drift apart — add a transform there, not in a node method. Each `encode()` then follows the same
+  shape: build an `mPrompt`, apply, `Generate()`, `clip.tokenize` + `encode_from_tokens(...,
+  return_pooled=True)`, then prepend `conditioning_optional` to the resulting conditioning list so the node
+  composes with other prompt nodes. The `Text` variants stop after `Generate()` and return the string.
 - `m_fitpose.py` — `calc_fit()` (the fit arithmetic) and `target_from_latent()`. No torch/PIL.
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
 - `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
@@ -110,8 +121,9 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
 `__init__.py` merges the `NODE_CLASS_MAPPINGS` / `NODE_DISPLAY_NAME_MAPPINGS` dicts that each `m9_*.py`
 module declares. A new node module must export both and be merged there, or ComfyUI won't see it.
 
-The node percentages are converted to absolute counts in `encode()` (`percent * CountTokens('prompt') / 100`)
-before being passed to `mPrompt` as `inLimit`/`inTarget` — `mPrompt` itself only deals in counts.
+The node percentages are converted to absolute counts in `apply_scramble()` (`percent *
+CountTokens('prompt') / 100`) before being passed to `mPrompt` as `inLimit`/`inTarget` — `mPrompt` itself
+only deals in counts.
 
 ### Token model
 
@@ -143,8 +155,15 @@ draws from it. Two invariants hold and both are easy to break:
   reordering anything, and `ScrambleWeights`/`TweakWeights` applied one identical delta to every selected
   prompt. A fixed seed must reproduce a run exactly while still varying *within* the run.
 - **Draw from `self.rng`, not the `random` module.** Module-level `random.seed()` would reset the
-  process-wide generator that ComfyUI and every other custom node share. `random.Random(None)` seeds from
-  entropy, so an unconnected `seed_optional` stays fully random.
+  process-wide generator that ComfyUI and every other custom node share. `random.Random(None)` would seed
+  from entropy, but that path is not reached from the nodes — see below.
+
+`seed_optional` sits in `optional` *with a widget spec*, so ComfyUI renders it as an INT widget and always
+passes a value; unconnected it is `0`, never `None`. An unconnected node is therefore fully deterministic,
+and ComfyUI caches its output, so it produces one variation and reuses it forever. Getting a fresh
+variation per run means driving `seed_optional` from a seed primitive — which is what the README tells
+users to do. Adding `"control_after_generate": True` to the widget spec would give the node its own
+randomize control and remove that requirement.
 
 ### Fit geometry
 

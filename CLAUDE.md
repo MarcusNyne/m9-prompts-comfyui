@@ -92,8 +92,8 @@ print(calc_fit(512, 768, 1216, 832, 1.0))   # -> (555, 832, 330, 0)"
 ```bash
 python -c "
 from m_cropratio import calc_crop
-print(calc_crop(801, 400, 1, 1))                    # -> (400, 400, 200, 0)
-print(calc_crop(801, 400, 1, 1, 'Vertical only'))   # -> (801, 400, 0, 0)"
+print(calc_crop(801, 400, 1, 1))                     # -> (400, 400, 200, 0)
+print(calc_crop(400, 801, 16, 9, 'Vertical only'))   # -> (400, 801, 0, 0), would flip"
 ```
 
 ```bash
@@ -249,12 +249,15 @@ degrades to a pass-through rather than raising. A pass-through is `(src_w, src_h
 
 Four decisions there are load-bearing:
 
-- **`mode` gates on the source's orientation, not on which axis gets trimmed.** `Vertical only` means
-  "only crop images that are vertical" — a portrait source is cropped on whichever axis the ratio calls
-  for, and a landscape source passes through untouched. It does *not* mean "only trim top and bottom".
-  The other reading was considered and rejected; don't quietly swap them.
-- **A square source passes through under both restricted modes.** `w == h` is neither portrait nor
-  landscape, so `_mode_allows` answers no to both.
+- **`mode` gates on orientation, not on which axis gets trimmed.** `Vertical only` means "crop vertical
+  images and leave them vertical". It does *not* mean "only trim top and bottom" — a portrait source is
+  trimmed on whichever axis the ratio calls for. That reading was considered and rejected; don't quietly
+  swap them.
+- **A restricted mode never changes orientation.** `_mode_allows` is called with the *computed result*,
+  after the crop arithmetic, and requires both ends to be portrait (or both landscape). Gating on the
+  target ratio instead is nearly the same test but not quite: a 1x8 source against 832:1216 rounds to
+  1x1, square, and only the result-side check catches it. Square counts as neither, so a square source
+  or a square result declines under both restricted modes.
 - **Only the ratio matters.** `1216x832` and `152x104` give identical results, and the image is never
   scaled — the node cannot grow an image or resize it to the reference. The already-matching test is a
   cross-multiplied integer comparison rather than a float one, so exact matches are exact.

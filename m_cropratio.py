@@ -3,7 +3,7 @@
 # standalone, the same way m_fitpose.py can be.
 
 # Which source images get cropped at all. The gate is on the *orientation of the
-# incoming image*, not on which axis ends up being trimmed.
+# incoming image and of the result*, not on which axis ends up being trimmed.
 sModes = (
     "Vertical only",
     "Horizontal only",
@@ -13,18 +13,29 @@ sModes = (
 sDefaultMode = "Always"
 
 
-def _mode_allows(inSrcW, inSrcH, inMode):
-    """Whether an image of this shape is cropped at all under inMode.
+def _orientation(inW, inH):
+    """1 for landscape, -1 for portrait, 0 for square."""
+    return (inW > inH) - (inH > inW)
 
-    "Vertical only" crops portrait sources and passes landscape ones through
-    untouched; "Horizontal only" is the mirror. A square source is neither portrait
-    nor landscape, so both restricted modes leave it alone. An unrecognized mode
-    falls back to "Always", which keeps calc_crop total.
+
+def _mode_allows(inSrcW, inSrcH, inNewW, inNewH, inMode):
+    """Whether a crop from inSrc* to inNew* is permitted under inMode.
+
+    A restricted mode never changes an image's orientation: "Vertical only" crops a
+    portrait source and leaves it portrait. A landscape target ratio would flip it, so
+    the image passes through untouched instead; a landscape source is not its business
+    either way. "Horizontal only" is the mirror.
+
+    Both ends are judged, not just the source, so the guarantee survives the rounding
+    at extreme sizes -- a 1x8 source against a 832:1216 ratio computes to 1x1, which is
+    square rather than portrait, and is refused here. Square is neither portrait nor
+    landscape, so a square source or a square result declines under both restricted
+    modes. An unrecognized mode falls back to "Always", which keeps calc_crop total.
     """
     if inMode == "Vertical only":
-        return inSrcH > inSrcW
+        return _orientation(inSrcW, inSrcH) < 0 and _orientation(inNewW, inNewH) < 0
     if inMode == "Horizontal only":
-        return inSrcW > inSrcH
+        return _orientation(inSrcW, inSrcH) > 0 and _orientation(inNewW, inNewH) > 0
     return True
 
 
@@ -42,6 +53,9 @@ def calc_crop(inSrcW, inSrcH, inRatioW, inRatioH, inMode=sDefaultMode):
 
     A pass-through -- ratio already matched, mode gates it out, or a ratio dimension is
     non-positive -- comes back as (inSrcW, inSrcH, 0, 0), which callers can test for.
+
+    Under a restricted mode the result always has the same orientation as the source;
+    see _mode_allows.
     """
     # Guards: these shouldn't happen, but a zero dimension would divide by zero.
     src_w = max(int(inSrcW), 1)
@@ -52,9 +66,6 @@ def calc_crop(inSrcW, inSrcH, inRatioW, inRatioH, inMode=sDefaultMode):
     no_crop = (src_w, src_h, 0, 0)
 
     if ratio_w <= 0 or ratio_h <= 0:
-        return no_crop
-
-    if not _mode_allows(src_w, src_h, inMode):
         return no_crop
 
     # Cross-multiplied comparison of src_w/src_h against ratio_w/ratio_h, so the
@@ -71,6 +82,11 @@ def calc_crop(inSrcW, inSrcH, inRatioW, inRatioH, inMode=sDefaultMode):
         new_h = max(min(int(round(src_w * ratio_h / ratio_w)), src_h), 1)
         new_w = src_w
     else:
+        return no_crop
+
+    # Gated on the computed result, not just on the source, so a restricted mode can
+    # never hand back an image whose orientation changed.
+    if not _mode_allows(src_w, src_h, new_w, new_h, inMode):
         return no_crop
 
     return (new_w, new_h, (src_w - new_w) // 2, (src_h - new_h) // 2)

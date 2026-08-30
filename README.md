@@ -154,7 +154,7 @@ The aspect ratio of the input image is always preserved.  A smaller image is sca
 
 ## CropToRatio [m9] (image/transform)
 
-Trims an image down to a target aspect ratio.  Intended for tidying up a crop taken from a bounding box: the crop comes out at whatever shape the box happened to be, and this squares it up to the ratio the rest of the workflow expects.
+Trims an image down to a target aspect ratio.  Intended for tidying up a crop taken from a bounding box: the crop comes out at whatever shape the box happened to be, and this brings it back to the ratio the rest of the workflow expects.
 
 Nothing is scaled and nothing is added.  One axis is trimmed equally from both ends until what remains matches the ratio: an image that is too wide loses its left and right edges, one that is too tall loses its top and bottom.  When the number of pixels to remove is odd, the extra one comes off the bottom or the right.
 
@@ -169,13 +169,36 @@ With neither **ratio_image** nor **width**/**height** connected there is no rati
 
 ### Fields
 
-   * **mode**: Which images get cropped at all, judged by the shape of the incoming image.
-     * `Always` (default) crops every image
-     * `Vertical only` crops portrait images and passes landscape ones through untouched
-     * `Horizontal only` crops landscape images and passes portrait ones through untouched
-     * A square image is neither portrait nor landscape, so `Vertical only` and `Horizontal only` both leave it alone
+   * **mode**: Which images get cropped at all.
+     * `Always` (default) crops every image, even when that turns a tall image into a wide one
+     * `Vertical only` crops a portrait image and leaves it portrait
+     * `Horizontal only` crops a landscape image and leaves it landscape
+     * Neither restricted mode ever changes an image's orientation.  A portrait image with a landscape target ratio would have to come out landscape, so under `Vertical only` it passes through untouched instead — and a landscape image is left alone in that mode regardless of the ratio
+     * Square counts as neither, so a square image, or a target ratio that comes out square, passes through under both restricted modes
 
 Only the ratio matters, never the size: `1216` x `832` and `152` x `104` produce exactly the same crop.  An image already at the target ratio passes through unchanged, as does one whose ratio is zero on either side.  Batches are supported — every frame shares a size, so the whole batch is cropped identically.
+
+### Typical use
+
+A detection node hands you a bounding box, an ImageCrop gives you the region, and you want to send it through a generation pass that expects a particular shape.  The crop is whatever shape the box was, so put this node between the two:
+
+```
+ImageCrop  ──image──►  CropToRatio [m9]  ──image──►  upscale / detailer / encode
+                              ▲
+  reference image or size ────┘   (ratio_image, or width + height)
+```
+
+The result still needs resizing to the exact pixel dimensions — this node only fixes the *shape*, never the size, so the resize that follows it is no longer a stretch.
+
+### Choosing a mode
+
+Reach for a restricted mode when the ratio you are matching does not always agree with the images you are feeding it:
+
+   * **`Always`** when every image should end up at the target ratio, whatever it takes.  A tall crop against a wide ratio loses most of its height and comes out wide.
+   * **`Vertical only`** when you are matching a portrait ratio and want anything already landscape left alone — full-body crops trimmed to a portrait canvas, say, while a wide establishing shot passes straight through.
+   * **`Horizontal only`** for the mirror case.
+
+The restricted modes are a filter, not a different crop: an image they do crop is cropped exactly as `Always` would have.  They only ever decline.  So if a workflow is mysteriously not cropping, the mode is the first thing to check — an orientation that disagrees with the ratio is a silent pass-through by design, not an error.
 
 ## Prefix [m9] (text)
 

@@ -161,9 +161,11 @@ Nothing is scaled and nothing is added.  One axis is trimmed equally from both e
 ### Connectors
 
    * **image**: Input. The image to crop.
-   * **ratio_image**: Input (optional). When connected, the target ratio is taken from this image and the width/height fields are ignored.  Only its proportions are read, never its pixels — wire in the latent-sized image, the original frame, or anything else already at the shape you want to match.
+   * **width** / **height**: Inputs (INT, optional). The target ratio.  Drive them from a primitive, or from the width/height outputs of a node such as FitPose [m9].
+   * **ratio_image**: Input (optional). When connected, the target ratio is taken from this image and the width/height inputs are ignored.  Only its proportions are read, never its pixels — wire in the latent-sized image, the original frame, or anything else already at the shape you want to match.
    * **IMAGE**: Output. The cropped image.
-   * **width** / **height**: Outputs (INT). The size of the cropped image.
+
+With neither **ratio_image** nor **width**/**height** connected there is no ratio to crop to, and the image passes through unchanged.
 
 ### Fields
 
@@ -172,7 +174,6 @@ Nothing is scaled and nothing is added.  One axis is trimmed equally from both e
      * `Vertical only` crops portrait images and passes landscape ones through untouched
      * `Horizontal only` crops landscape images and passes portrait ones through untouched
      * A square image is neither portrait nor landscape, so `Vertical only` and `Horizontal only` both leave it alone
-   * **width** / **height**: The target ratio, used only when **ratio_image** is not connected.
 
 Only the ratio matters, never the size: `1216` x `832` and `152` x `104` produce exactly the same crop.  An image already at the target ratio passes through unchanged, as does one whose ratio is zero on either side.  Batches are supported — every frame shares a size, so the whole batch is cropped identically.
 

@@ -266,10 +266,17 @@ round trip — the offsets are guaranteed in-bounds and non-negative, so there i
 nothing PIL would do better. Every frame of a batch shares one size, so a single slice crops all of them
 and there is no per-frame loop. The slice is a view; `.contiguous()` packs it before it leaves the node.
 
-A connected `ratio_image` overrides the `width`/`height` widgets, mirroring how `latent` overrides them in
-`FitPose` (ComfyUI can't grey widgets out dynamically). `ratio_from_image` reads only `shape[2]`/`shape[1]`
-of the `[B,H,W,C]` tensor and returns `None` on anything it doesn't recognize, which falls back to the
-widgets; the ratio image's batch size and pixels are never touched.
+The ratio comes in over sockets, not widgets: `width`/`height` are `forceInput` INTs and `ratio_image` is
+an IMAGE, all three in `optional`. `required` would be wrong for the pair — `ratio_image` overrides them,
+so wiring only the reference image has to be a complete graph. Unconnected optional inputs never reach
+`crop()`, so its `width=0, height=0` defaults stand and `calc_crop` reads that as a pass-through: a node
+with nothing but an image wired in is a no-op rather than an error. `ratio_from_image` reads only
+`shape[2]`/`shape[1]` of the `[B,H,W,C]` tensor and returns `None` on anything it doesn't recognize, which
+falls back to the `width`/`height` inputs; the ratio image's batch size and pixels are never touched.
+
+The node returns `IMAGE` alone. `FitPose` also emits its resolved `width`/`height` because that canvas size
+is what an `EmptyLatentImage` downstream needs; a crop result is nothing another node has to be told, so
+there is no size output here.
 
 ### Prefix assembly
 

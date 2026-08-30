@@ -10,6 +10,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **FitPose [m9]**: Fit a pose image into a target canvas without stretching
 
+* **CropToRatio [m9]**: Trim an image to an aspect ratio, cutting equally from two opposite edges
+
 * **Prefix [m9]**: Join name, theme, scene and frame into a single underscore-separated prefix
 
 * **StepReplace [m9]**: Rewrite text with up to five search-and-replace steps, with random { a | b } choices
@@ -149,6 +151,30 @@ Fits a pose/control image (such as an OpenPose skeleton on a black background) i
    * **width** / **height**: The canvas size to fit into, used only when **latent** is not connected.
 
 The aspect ratio of the input image is always preserved.  A smaller image is scaled up to fit the canvas, so **placement** only matters once **subscale** moves away from `1.0`.  Batches are supported, with each image fitted independently.
+
+## CropToRatio [m9] (image/transform)
+
+Trims an image down to a target aspect ratio.  Intended for tidying up a crop taken from a bounding box: the crop comes out at whatever shape the box happened to be, and this squares it up to the ratio the rest of the workflow expects.
+
+Nothing is scaled and nothing is added.  One axis is trimmed equally from both ends until what remains matches the ratio: an image that is too wide loses its left and right edges, one that is too tall loses its top and bottom.  When the number of pixels to remove is odd, the extra one comes off the bottom or the right.
+
+### Connectors
+
+   * **image**: Input. The image to crop.
+   * **ratio_image**: Input (optional). When connected, the target ratio is taken from this image and the width/height fields are ignored.  Only its proportions are read, never its pixels — wire in the latent-sized image, the original frame, or anything else already at the shape you want to match.
+   * **IMAGE**: Output. The cropped image.
+   * **width** / **height**: Outputs (INT). The size of the cropped image.
+
+### Fields
+
+   * **mode**: Which images get cropped at all, judged by the shape of the incoming image.
+     * `Always` (default) crops every image
+     * `Vertical only` crops portrait images and passes landscape ones through untouched
+     * `Horizontal only` crops landscape images and passes portrait ones through untouched
+     * A square image is neither portrait nor landscape, so `Vertical only` and `Horizontal only` both leave it alone
+   * **width** / **height**: The target ratio, used only when **ratio_image** is not connected.
+
+Only the ratio matters, never the size: `1216` x `832` and `152` x `104` produce exactly the same crop.  An image already at the target ratio passes through unchanged, as does one whose ratio is zero on either side.  Batches are supported — every frame shares a size, so the whole batch is cropped identically.
 
 ## Prefix [m9] (text)
 

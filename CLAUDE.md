@@ -27,13 +27,14 @@ rather than a widget: the text belongs to whatever node feeds them, which is the
 
 - `ScramblePromptsText [m9]` / `TweakWeightsText [m9]`
 
-A separate node is an image op, filed under the stock `image/transform` category so it's discoverable where
+Two nodes are image ops, filed under the stock `image/transform` category so they're discoverable where
 people look for image nodes (`image/transform` is where the stock resize/crop/pad ops live;
 `image/postprocessing` would be wrong — that naming is for after-generation filters and no longer exists
 upstream, where those are now `image/filters`):
 
 - `FitPose [m9]` — fit a pose/control image into a latent's (or an explicit) canvas size without
   stretching, placed on black
+- `CropToRatio [m9]` — trim an image to a target aspect ratio, cutting equally from two opposite edges
 
 Two more nodes are plain text ops, filed under the stock `text` category — that is where upstream keeps
 its own string nodes (`StringReplace`/"Replace Text", `StringConcatenate`, the `Regex*` nodes) as of
@@ -71,8 +72,8 @@ ComfyUI loads the package by directory: clone or symlink the repo into `ComfyUI/
 ComfyUI. There is no lint, build, or test command.
 
 Neither the Python on PATH nor the bundled `venv/` has `torch`, `numpy`, or `Pillow` — those come from
-ComfyUI's own environment. So `m9_fit_pose_node.py` cannot be imported here, but the two logic modules
-have no third-party imports and are meant to be exercised directly:
+ComfyUI's own environment. So `m9_fit_pose_node.py` cannot be imported here, but every `m_*.py` logic
+module has no third-party imports and is meant to be exercised directly:
 
 ```bash
 python -c "
@@ -86,6 +87,13 @@ print(mp.Generate()); print(mp.GetLog())"
 python -c "
 from m_fitpose import calc_fit
 print(calc_fit(512, 768, 1216, 832, 1.0))   # -> (555, 832, 330, 0)"
+```
+
+```bash
+python -c "
+from m_cropratio import calc_crop
+print(calc_crop(801, 400, 1, 1))                    # -> (400, 400, 200, 0)
+print(calc_crop(801, 400, 1, 1, 'Vertical only'))   # -> (801, 400, 0, 0)"
 ```
 
 ```bash
@@ -110,6 +118,11 @@ before importing the package, then monkeypatch `tensor_to_pil`, `pil_to_tensor`,
 `torch.cat` with recorders — that covers the batch loop, latent override, and paste offsets without any
 real imaging.
 
+`m9_crop_ratio_node.py` needs none of that: it imports nothing but its own logic module, so it can be
+loaded here directly by registering the repo as a package (`sys.modules["m9pkg"] = <module with
+__path__ = ["."]>`, then `importlib.import_module("m9pkg.m9_crop_ratio_node")`) and handed an object that
+carries a `shape` and records the `__getitem__` slice. Skip `__init__.py` — that one does pull in torch.
+
 The bundled `venv/` (gitignored) contains `comfy_cli`, used for publishing to the Comfy Registry; registry
 metadata (`PublisherId`, `version`) lives in `pyproject.toml` and must be bumped there for each release.
 
@@ -128,6 +141,10 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
   composes with other prompt nodes. The `Text` variants stop after `Generate()` and return the string.
 - `m_fitpose.py` — `calc_fit()` (the fit arithmetic) and `target_from_latent()`. No torch/PIL.
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
+- `m_cropratio.py` — `calc_crop()` (the crop arithmetic), `_mode_allows()` and `ratio_from_image()`. Pure
+  stdlib, so it runs here directly.
+- `m9_crop_ratio_node.py` — `CropToRatio_m9`. The only node wrapper with no third-party imports: the crop
+  is one tensor slice, so there is no torch/PIL round trip to make.
 - `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
 - `m9_prefix_node.py` — `Prefix_m9`, a thin pass-through to `build_prefix()`.
 - `m_stepreplace.py` — `step_replace()` plus `apply_step()`, `expand_choices()` and `build_pattern()`.
@@ -221,6 +238,38 @@ spatial shape is read, so a latent batch size that differs from the image batch 
 The tensor helpers in `m9_fit_pose_node.py` are **per-frame**: `tensor_to_pil` takes an `image[i]` slice
 (`[H,W,C]`), not the `[B,H,W,C]` batch, and `pil_to_tensor` re-adds a batch dim, so `fit()` collects
 frames and ends with `torch.cat(..., dim=0)`.
+
+### Crop geometry
+
+`calc_crop` returns `(new_w, new_h, x_offset, y_offset)` — the same shape as `calc_fit`, but here the
+offsets are the top-left corner of a region that always lies *inside* the source, so they are never
+negative. It is total in the same way: a zero dimension, a non-positive ratio, or an unknown mode
+degrades to a pass-through rather than raising. A pass-through is `(src_w, src_h, 0, 0)`, which is what
+`CropToRatio_m9.crop()` tests for in order to hand back the original tensor instead of a copy.
+
+Four decisions there are load-bearing:
+
+- **`mode` gates on the source's orientation, not on which axis gets trimmed.** `Vertical only` means
+  "only crop images that are vertical" — a portrait source is cropped on whichever axis the ratio calls
+  for, and a landscape source passes through untouched. It does *not* mean "only trim top and bottom".
+  The other reading was considered and rejected; don't quietly swap them.
+- **A square source passes through under both restricted modes.** `w == h` is neither portrait nor
+  landscape, so `_mode_allows` answers no to both.
+- **Only the ratio matters.** `1216x832` and `152x104` give identical results, and the image is never
+  scaled — the node cannot grow an image or resize it to the reference. The already-matching test is a
+  cross-multiplied integer comparison rather than a float one, so exact matches are exact.
+- **The odd pixel goes to the bottom or the right.** Both offsets floor (`(src - new) // 2`), so trimming
+  401 rows takes 200 off the top and 201 off the bottom.
+
+Unlike `FitPose`, the composite is plain tensor slicing (`image[:, y:y+h, x:x+w, :]`) rather than a PIL
+round trip — the offsets are guaranteed in-bounds and non-negative, so there is no overflow to crop and
+nothing PIL would do better. Every frame of a batch shares one size, so a single slice crops all of them
+and there is no per-frame loop. The slice is a view; `.contiguous()` packs it before it leaves the node.
+
+A connected `ratio_image` overrides the `width`/`height` widgets, mirroring how `latent` overrides them in
+`FitPose` (ComfyUI can't grey widgets out dynamically). `ratio_from_image` reads only `shape[2]`/`shape[1]`
+of the `[B,H,W,C]` tensor and returns `None` on anything it doesn't recognize, which falls back to the
+widgets; the ratio image's batch size and pixels are never touched.
 
 ### Prefix assembly
 

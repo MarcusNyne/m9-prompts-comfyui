@@ -1,20 +1,25 @@
 # ComfyUI: m9 Prompts
 
-Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI).
+Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI). Published to [registry.comfy.org](https://registry.comfy.org/nodes/m9-prompts-comfyui).
 
-* **ScramblePrompts [m9]**: Reorder prompts, remove prompts, modify weights
+### Prompt manipulation
+* **[ScramblePrompts \[m9\]](#scrambleprompts-m9-conditioning)**: Reorder prompts, remove prompts, modify weights
 
-* **TweakWeights [m9]**: Modify the weights of prompts matching keywords
+* **[TweakWeights \[m9\]](#tweakweights-m9-conditioning)**: Modify the weights of prompts matching keywords
 
-* **ScramblePromptsText [m9]** / **TweakWeightsText [m9]**: The same two transforms as text in, text out
+* **[ScramblePromptsText \[m9\]](#scramblepromptstext-m9--tweakweightstext-m9-utils)** / **[TweakWeightsText \[m9\]](#scramblepromptstext-m9--tweakweightstext-m9-utils)**: The same two transforms as text in, text out
 
-* **FitPose [m9]**: Fit a pose image into a target canvas without stretching
+* **[StepReplace \[m9\]](#stepreplace-m9-text)**: Rewrite text with up to five search-and-replace steps; support for { a | b } choices
 
-* **CropToRatio [m9]**: Trim an image to an aspect ratio, cutting equally from two opposite edges
+### Prefix builder
 
-* **Prefix [m9]**: Join name, theme, scene and frame into a single underscore-separated prefix
+* **[Prefix \[m9\]](#prefix-m9-text)**: Join name, theme, scene and frame into a single underscore-separated prefix
 
-* **StepReplace [m9]**: Rewrite text with up to five search-and-replace steps, with random { a | b } choices
+### Image utilities
+
+* **[FitPose \[m9\]](#fitpose-m9-imagetransform)**: Fit a pose image into a target canvas without stretching
+
+* **[CropToRatio \[m9\]](#croptoratio-m9-imagetransform)**: Trim an image to an aspect ratio, cutting equally from two opposite edges
 
 ## ScramblePrompts [m9] (conditioning)
 
@@ -123,6 +128,75 @@ the parts you name), or to send the result to a preview/save node so you can see
 The settings are identical to **ScramblePrompts [m9]** and **TweakWeights [m9]** respectively; see those
 sections above.  **print_output** sends the same information to the command window.
 
+## StepReplace [m9] (text)
+
+Rewrites a text prompt with up to five search-and-replace steps, and collapses any `{ one | two }` choice it meets along the way down to a single randomly picked option.  Useful for prompt templates: keep the wording in one node, and swap placeholders such as `[SUBJECT]` or `[OUTFIT]` for the text you actually want, or for a random pick out of a short list.
+
+### Connectors
+
+   * **text**: Input (STRING). The text to rewrite.  This is an input rather than a field, so the text lives in whatever node feeds it -- a primitive, another prompt node, or any node that outputs a string.
+   * **seed_optional**: Input (INT, optional). Seeds the random choices.  See below.
+   * **text**: Output (STRING). The rewritten text.  Feed it to a CLIP Text Encode node, or on to another text node.
+
+### Fields
+
+   * **search_1** \ **replace_1** ... **search_5** \ **replace_5**: Five search-and-replace pairs, applied in order.  **search** is a single line, **replace** is multi-line.
+   * **print_output**: Prints what each step did, and the final text, to the console window.
+
+### Steps run top to bottom
+
+Each step works on the result of the step before it, so a later **search** can find text that an earlier **replace** produced:
+
+| step | pair | result |
+|---|---|---|
+| text | | `a flower in a vase` |
+| step 1 | `flower` -> `rose` | `a rose in a vase` |
+| step 2 | `rose` -> `red rose` | `a red rose in a vase` |
+
+   * A step with an empty **search** is skipped, so you can use only as many of the five as you need
+   * An empty **replace** deletes the search term
+   * Every occurrence is replaced, not just the first
+
+Search terms are matched literally and are not case sensitive, so `cat` also finds `Cat` and `CAT`.  A term that begins or ends with a letter, digit or underscore only matches whole words -- `cat` does not find the `cat` inside `category`.  A term wrapped in anything else matches wherever it appears, so placeholders like `[FIND_THIS]` and terms like `<lora:foo:0.8>` work exactly as written.
+
+### Random choices
+
+Anywhere in the incoming text, or in a **replace** field, `{ one | two | three }` collapses to exactly one of the options:
+
+   * Options are trimmed, so `{ a | b }` and `{a|b}` are the same thing
+   * An empty option is allowed: `{ a | }` picks either `a` or nothing at all
+   * Choices may be nested: `{ a | { b | c } }`
+   * Each occurrence draws on its own, so one replacement used three times can give three different results
+   * Braces without a `|` are left alone, and `\{` `\|` `\}` are literal characters rather than choice syntax
+
+Choices are resolved as the text is built, not at the end, so a later **search** can also match the option a choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
+
+### Seeding
+
+   * With **seed_optional** left unconnected (or set to `0`), a fresh random seed is used on every run, and the node is re-evaluated each time rather than serving a cached result
+   * With any other seed the run is fully reproducible: the same seed and the same fields always produce the same text
+   * Connect a seed primitive to reproduce a specific result later from the numbers saved in the workflow
+
+## Prefix [m9] (text)
+
+Builds a single string out of up to four parts, joined with underscores.  Intended for the **filename_prefix** field of a SaveImage node, so a batch of renders can be named consistently.
+
+### Connectors
+
+   * **prefix**: Output (STRING). The joined text.  Connect it to the **filename_prefix** input of a SaveImage node (convert that widget to an input first).
+
+### Fields
+
+   * **name** \ **theme** \ **scene** \ **frame**: The four parts, joined in that order.
+     * Each one is optional; leave a field empty and it is skipped, along with its separator
+     * With only **name** filled in, the output has no underscores at all
+     * With **name** and **scene** filled in, the output is `name_scene`
+     * Any of these may be converted to an input and driven by another node
+
+When every field is empty the output is `ComfyUI`, which is the same default SaveImage uses on its own, so an unconfigured node still produces valid file names.
+
+Values are cleaned up before joining: surrounding whitespace is trimmed, and characters that are illegal in a file name (`< > : " / \ | ? *`) are replaced with an underscore.  Note that this also applies to ComfyUI's own `%date:yyyy-MM-dd%` prefix tokens and to forward slashes used for subfolders — both contain characters that get replaced, so build those into the SaveImage field directly rather than through this node.
+
 ## FitPose [m9] (image/transform)
 
 Fits a pose/control image (such as an OpenPose skeleton on a black background) into a target canvas size without stretching.  The image is scaled to fit, placed on the canvas, and padded with black.
@@ -200,80 +274,11 @@ Reach for a restricted mode when the ratio you are matching does not always agre
 
 The restricted modes are a filter, not a different crop: an image they do crop is cropped exactly as `Always` would have.  They only ever decline.  So if a workflow is mysteriously not cropping, the mode is the first thing to check — an orientation that disagrees with the ratio is a silent pass-through by design, not an error.
 
-## Prefix [m9] (text)
-
-Builds a single string out of up to four parts, joined with underscores.  Intended for the **filename_prefix** field of a SaveImage node, so a batch of renders can be named consistently.
-
-### Connectors
-
-   * **prefix**: Output (STRING). The joined text.  Connect it to the **filename_prefix** input of a SaveImage node (convert that widget to an input first).
-
-### Fields
-
-   * **name** \ **theme** \ **scene** \ **frame**: The four parts, joined in that order.
-     * Each one is optional; leave a field empty and it is skipped, along with its separator
-     * With only **name** filled in, the output has no underscores at all
-     * With **name** and **scene** filled in, the output is `name_scene`
-     * Any of these may be converted to an input and driven by another node
-
-When every field is empty the output is `ComfyUI`, which is the same default SaveImage uses on its own, so an unconfigured node still produces valid file names.
-
-Values are cleaned up before joining: surrounding whitespace is trimmed, and characters that are illegal in a file name (`< > : " / \ | ? *`) are replaced with an underscore.  Note that this also applies to ComfyUI's own `%date:yyyy-MM-dd%` prefix tokens and to forward slashes used for subfolders — both contain characters that get replaced, so build those into the SaveImage field directly rather than through this node.
-
-## StepReplace [m9] (text)
-
-Rewrites a text prompt with up to five search-and-replace steps, and collapses any `{ one | two }` choice it meets along the way down to a single randomly picked option.  Useful for prompt templates: keep the wording in one node, and swap placeholders such as `[SUBJECT]` or `[OUTFIT]` for the text you actually want, or for a random pick out of a short list.
-
-### Connectors
-
-   * **text**: Input (STRING). The text to rewrite.  This is an input rather than a field, so the text lives in whatever node feeds it -- a primitive, another prompt node, or any node that outputs a string.
-   * **seed_optional**: Input (INT, optional). Seeds the random choices.  See below.
-   * **text**: Output (STRING). The rewritten text.  Feed it to a CLIP Text Encode node, or on to another text node.
-
-### Fields
-
-   * **search_1** \ **replace_1** ... **search_5** \ **replace_5**: Five search-and-replace pairs, applied in order.  **search** is a single line, **replace** is multi-line.
-   * **print_output**: Prints what each step did, and the final text, to the console window.
-
-### Steps run top to bottom
-
-Each step works on the result of the step before it, so a later **search** can find text that an earlier **replace** produced:
-
-| step | pair | result |
-|---|---|---|
-| text | | `a flower in a vase` |
-| step 1 | `flower` -> `rose` | `a rose in a vase` |
-| step 2 | `rose` -> `red rose` | `a red rose in a vase` |
-
-   * A step with an empty **search** is skipped, so you can use only as many of the five as you need
-   * An empty **replace** deletes the search term
-   * Every occurrence is replaced, not just the first
-
-Search terms are matched literally and are not case sensitive, so `cat` also finds `Cat` and `CAT`.  A term that begins or ends with a letter, digit or underscore only matches whole words -- `cat` does not find the `cat` inside `category`.  A term wrapped in anything else matches wherever it appears, so placeholders like `[FIND_THIS]` and terms like `<lora:foo:0.8>` work exactly as written.
-
-### Random choices
-
-Anywhere in the incoming text, or in a **replace** field, `{ one | two | three }` collapses to exactly one of the options:
-
-   * Options are trimmed, so `{ a | b }` and `{a|b}` are the same thing
-   * An empty option is allowed: `{ a | }` picks either `a` or nothing at all
-   * Choices may be nested: `{ a | { b | c } }`
-   * Each occurrence draws on its own, so one replacement used three times can give three different results
-   * Braces without a `|` are left alone, and `\{` `\|` `\}` are literal characters rather than choice syntax
-
-Choices are resolved as the text is built, not at the end, so a later **search** can also match the option a choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
-
-### Seeding
-
-   * With **seed_optional** left unconnected (or set to `0`), a fresh random seed is used on every run, and the node is re-evaluated each time rather than serving a cached result
-   * With any other seed the run is fully reproducible: the same seed and the same fields always produce the same text
-   * Connect a seed primitive to reproduce a specific result later from the numbers saved in the workflow
-
 ## Example Workflows
 
-Example workflows can be found in the two included example images, that use the **ScramblePrompts [m9]** node.
+Example workflows are embedded in the four images in the [examples](examples) folder.  Drag one into ComfyUI to load the workflow it was generated with.
 
-### ScramblePromptsExample-1.png
+### [ScramblePrompts_Conditioning_m9.png](examples/ScramblePrompts_Conditioning_m9.png)
 
 In this example workflow, the positive "CLIP Text Encode (prompt)" is replaced with a **ScramblePrompts [m9]** node.  ComfyUI will cache the results of nodes to make generation more efficient.  If you use this node without an input into **seed_optional**, the prompts will only be randomized the first time, with the results cached and reused.
 
@@ -281,8 +286,20 @@ By adding a seed primitive, and connecting it to **seed_optional**, the node wil
 
 **print_output** is enabled, allowing you to see the results of prompt scrambling in the console window.
 
-### ScramblePrompts_m9_00001_.png
+The file name comes from the use of **Prefix [m9]**.
+
+### [ScramblePrompts_ClipConditioning_m9.png](examples/ScramblePrompts_ClipConditioning_m9.png)
 
 In this example, the **ScramblePrompts [m9]** node is used in conjunction with the existing positive "CLIP Text Encode (prompt)".  The prompts within the text encoder are left as is, and the scrambled prompts are added to them in the final prompt sent to the sampler.
 
-The file name comes from the use of **Prefix [m9]**.
+### [ScramblePrompts_TextPreview_m9.png](examples/ScramblePrompts_TextPreview_m9.png)
+
+This example uses the **ScramblePromptsText [m9]** variant where the output text goes into a "CLIP Text Encode" node for conditioning.  The text output can be previewed.
+
+### [StepReplace_TextPreview_m9.png](examples/StepReplace_TextPreview_m9.png)
+
+This example uses **StepReplace [m9]** to perform multiple text replacements and show a text preview.
+
+This can be used to individually control the inclusion of text parts of a prompt from a main prompt.
+
+An incrementing seed is used on every run, and the node is re-evaluated each time rather than serving a cached result.

@@ -21,6 +21,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **[CropToRatio \[m9\]](#croptoratio-m9-imagetransform)**: Trim an image to an aspect ratio, cutting equally from two opposite edges
 
+* **[CalcScaleFactor \[m9\]](#calcscalefactor-m9-imageupscaling)**: Work out the scale factor, and the 32-pixel-aligned size, that brings an image to a target megapixel count
+
 ## ScramblePrompts [m9] (conditioning)
 
 Creates a variation of a text prompt by reordering prompts, removing prompts, and nudging weights up or down.  You may use this node as your positive/negative prompt, or combine with other prompt nodes.
@@ -238,6 +240,8 @@ Nothing is scaled and nothing is added.  One axis is trimmed equally from both e
    * **width** / **height**: Inputs (INT, optional). The target ratio.  Drive them from a primitive, or from the width/height outputs of a node such as FitPose [m9].
    * **ratio_image**: Input (optional). When connected, the target ratio is taken from this image and the width/height inputs are ignored.  Only its proportions are read, never its pixels — wire in the latent-sized image, the original frame, or anything else already at the shape you want to match.
    * **IMAGE**: Output. The cropped image.
+   * **width** / **height**: Outputs (INT). The size of the cropped image, or of the original when it passes through unchanged.
+   * **megapixels**: Output (FLOAT). The cropped image's pixel count in millions (width × height ÷ 1,000,000).
 
 With neither **ratio_image** nor **width**/**height** connected there is no ratio to crop to, and the image passes through unchanged.
 
@@ -273,6 +277,29 @@ Reach for a restricted mode when the ratio you are matching does not always agre
    * **`Horizontal only`** for the mirror case.
 
 The restricted modes are a filter, not a different crop: an image they do crop is cropped exactly as `Always` would have.  They only ever decline.  So if a workflow is mysteriously not cropping, the mode is the first thing to check — an orientation that disagrees with the ratio is a silent pass-through by design, not an error.
+
+## CalcScaleFactor [m9] (image/upscaling)
+
+Works out how much to scale an image by to reach a target megapixel count, with the resulting size locked to a 32-pixel grid.  Nothing is resized here — this node only does the arithmetic, for an Upscale Image By or an Upscale Image node downstream to act on.
+
+### Connectors
+
+   * **image**: Input (optional). When connected, the size is taken from this image and the width/height inputs are ignored.  Only its size is read, never its pixels.
+   * **width** / **height**: Inputs (INT, optional). The size to scale from, used only when **image** is not connected.
+   * **scale_factor**: Output (FLOAT). The factor to scale by.  Scaling by it lands the width exactly on the **width** output.
+   * **width** / **height**: Outputs (INT). The target size, both multiples of 32.
+
+With neither **image** nor **width**/**height** connected there is no size to work from: **scale_factor** is `1.0` and **width**/**height** are `0`.
+
+### Fields
+
+   * **megapixels**: The target size in millions of pixels.  `1.0` is about the size of 1024 x 1024.
+
+### How close it gets
+
+The 32-pixel grid takes priority over the megapixel target, so the result is close but rarely exact: a 1920 x 1080 image at `1.0` comes out at 1344 x 768, which is 1.03 MP.
+
+One factor applied to both sides can only land both of them on the grid for a few aspect ratios, so the **width** is the one guaranteed.  The **height** output is the multiple of 32 nearest to where the factor puts the height, which is never more than 16 pixels away (1920 x 1080 scaled by `0.7` is 1344 x 756, against a **height** output of 768).  When both sides must be exact, feed the **width**/**height** outputs to a resize node instead of using **scale_factor** — the aspect ratio shifts by those few pixels.
 
 ## Example Workflows
 

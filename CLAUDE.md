@@ -36,6 +36,12 @@ upstream, where those are now `image/filters`):
   stretching, placed on black
 - `CropToRatio [m9]` — trim an image to a target aspect ratio, cutting equally from two opposite edges
 
+One node is size arithmetic for a resize, filed under `image/upscaling` beside the stock `ImageScaleBy`
+and `ImageScaleToTotalPixels` it feeds. It touches no pixels, so it is not an `image/transform` op:
+
+- `CalcScaleFactor [m9]` — the scale factor and 32-pixel-aligned size that bring an image to a target
+  megapixel count
+
 Two more nodes are plain text ops, filed under the stock `text` category — that is where upstream keeps
 its own string nodes (`StringReplace`/"Replace Text", `StringConcatenate`, the `Regex*` nodes) as of
 ComfyUI v0.34.0. On builds older than the rename that menu was `utils/string`, and the stock primitives
@@ -143,8 +149,12 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
 - `m_cropratio.py` — `calc_crop()` (the crop arithmetic), `_mode_allows()` and `ratio_from_image()`. Pure
   stdlib, so it runs here directly.
-- `m9_crop_ratio_node.py` — `CropToRatio_m9`. The only node wrapper with no third-party imports: the crop
-  is one tensor slice, so there is no torch/PIL round trip to make.
+- `m9_crop_ratio_node.py` — `CropToRatio_m9`. No third-party imports: the crop is one tensor slice, so
+  there is no torch/PIL round trip to make.
+- `m_scalefactor.py` — `calc_scale()` and `_snap()`. Pure stdlib, so it runs here directly.
+- `m9_scale_factor_node.py` — `CalcScaleFactor_m9`. Reads its size through `m_cropratio.ratio_from_image`,
+  so it takes `image`/`width`/`height` exactly the way `CropToRatio` takes its ratio. No third-party
+  imports; load it here the same way as the crop node.
 - `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
 - `m9_prefix_node.py` — `Prefix_m9`, a thin pass-through to `build_prefix()`.
 - `m_stepreplace.py` — `step_replace()` plus `apply_step()`, `expand_choices()` and `build_pattern()`.
@@ -277,9 +287,28 @@ with nothing but an image wired in is a no-op rather than an error. `ratio_from_
 `shape[2]`/`shape[1]` of the `[B,H,W,C]` tensor and returns `None` on anything it doesn't recognize, which
 falls back to the `width`/`height` inputs; the ratio image's batch size and pixels are never touched.
 
-The node returns `IMAGE` alone. `FitPose` also emits its resolved `width`/`height` because that canvas size
-is what an `EmptyLatentImage` downstream needs; a crop result is nothing another node has to be told, so
-there is no size output here.
+The node returns `image, width, height, megapixels` — the result's size, which on a pass-through is the
+source's. `megapixels` is a `FLOAT`, `width * height / 1_000_000`, unrounded. The size outputs were
+appended after `image` on purpose: ComfyUI links outputs by slot index, so `image` must stay slot 0 or
+saved workflows rewire.
+
+### Scale factor
+
+`calc_scale` returns `(scale_factor, new_w, new_h)`. Both sides are multiples of `sStep` (32), and that
+grid **takes priority over the megapixel target**, which is only approximate. That priority is the user's
+call.
+
+One uniform factor can almost never land both sides on the grid near the target (a 517x389 source's
+nearest such factor is ~6.7 MP when 1.0 is asked for), so **the width is the exact side**, also by the
+user's choice. `new_w` is snapped from the ideal factor, `scale_factor = new_w / src_w`, and `new_h` is
+snapped from `src_h * scale_factor`, the *final* factor rather than the ideal one. That order is
+load-bearing: it keeps scaling by `scale_factor` within 16px of `new_h`, where snapping both sides from the
+ideal factor lets them drift 20px apart (1920x1080 at 1 MP). The only exception is a height small enough
+to clamp up to one step. Don't round `scale_factor` for display either: `round(src_w * scale_factor)`
+must equal `new_w`.
+
+It is total the way `calc_crop` is: no size, or a non-positive target, returns `(1.0, src_w, src_h)`, so
+an unwired node outputs `1.0, 0, 0` rather than raising.
 
 ### Prefix assembly
 

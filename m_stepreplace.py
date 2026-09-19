@@ -86,13 +86,12 @@ def build_pattern(inSearch):
     return re.compile(pattern, re.IGNORECASE)
 
 
-def apply_step(inText, inSearch, inReplace, inRng=None):
+def apply_step(inText, inSearch, inReplace):
     """Replace every occurrence of one search term.  Returns (text, count).
 
-    The replacement is expanded at the moment it is inserted, so each occurrence
-    draws its own choice: three hits of a { rose | tulip } replacement can produce
-    three different flowers.  An empty or whitespace-only search term is a no-op,
-    and an empty replacement deletes the term.
+    The replacement is inserted literally -- step_replace() has already resolved any
+    choices in it, so every occurrence gets the same text.  An empty or
+    whitespace-only search term is a no-op, and an empty replacement deletes the term.
     """
     text = "" if inText is None else str(inText)
     search = "" if inSearch is None else str(inSearch).strip()
@@ -101,22 +100,20 @@ def apply_step(inText, inSearch, inReplace, inRng=None):
     if search == "":
         return (text, 0)
 
-    if inRng is None:
-        inRng = random.Random()
-
-    def swap(inMatch):
-        return expand_choices(replace, inRng)
-
-    return build_pattern(search).subn(swap, text)
+    # A function rather than a replacement string, so backslashes in the replacement
+    # are never read as group references.
+    return build_pattern(search).subn(lambda inMatch: replace, text)
 
 
 def step_replace(inText, inPairs, inSeed=None):
     """Run each (search, replace) pair in turn over the running text.
 
-    Pairs are applied top to bottom against the result of the pair before it, so a
-    later search term can match text an earlier replacement produced.  Choices in
-    the incoming text are resolved before the first pair runs, for the same reason:
-    nothing downstream should ever have to look inside an unresolved { a | b }.
+    Every choice is resolved once, before any pair runs: the incoming text first,
+    then each replacement in order.  A replacement therefore picks one option and
+    uses it for every occurrence it replaces, so { blue | green } fed into three
+    [EYE_COLOR] placeholders gives three matching colors.  Pairs are then applied top
+    to bottom against the result of the pair before it, so a later search term can
+    match text an earlier replacement produced, including the option it picked.
 
     Returns (text, log).  inSeed of None seeds from entropy; any other value makes
     the whole run reproducible.  One generator is built here and shared by every
@@ -126,8 +123,11 @@ def step_replace(inText, inPairs, inSeed=None):
     log = []
 
     text = expand_choices(inText, rng)
+    # Every replacement is expanded, even for a skipped step, so filling in or
+    # clearing one search field never shifts the choices the other fields make.
+    pairs = [(pair[0], expand_choices(pair[1], rng)) for pair in inPairs]
 
-    for step, pair in enumerate(inPairs, start=1):
+    for step, pair in enumerate(pairs, start=1):
         search = "" if pair[0] is None else str(pair[0]).strip()
         replace = pair[1]
 
@@ -135,7 +135,7 @@ def step_replace(inText, inPairs, inSeed=None):
             log.append("step {n}: skipped (no search term)".format(n=step))
             continue
 
-        text, count = apply_step(text, search, replace, rng)
+        text, count = apply_step(text, search, replace)
 
         if count == 0:
             log.append("step {n}: '{s}' not found".format(n=step, s=search))

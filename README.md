@@ -11,6 +11,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **[StepReplace \[m9\]](#stepreplace-m9-text)**: Rewrite text with up to five search-and-replace steps; support for { a | b } choices
 
+* **[EvaluateStringMultiline \[m9\]](#evaluatestringmultiline-m9-utilitiesprimitive)**: A multiline string primitive that resolves { a | b } choices and can pick a random line
+
 ### Prefix builder
 
 * **[Prefix \[m9\]](#prefix-m9-text)**: Join name, theme, scene and frame into a single underscore-separated prefix
@@ -168,16 +170,39 @@ Anywhere in the incoming text, or in a **replace** field, `{ one | two | three }
    * Options are trimmed, so `{ a | b }` and `{a|b}` are the same thing
    * An empty option is allowed: `{ a | }` picks either `a` or nothing at all
    * Choices may be nested: `{ a | { b | c } }`
-   * Each occurrence draws on its own, so one replacement used three times can give three different results
+   * Each field picks once, so one replacement used three times gives the same result all three times
    * Braces without a `|` are left alone, and `\{` `\|` `\}` are literal characters rather than choice syntax
 
-Choices are resolved as the text is built, not at the end, so a later **search** can also match the option a choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
+Every choice is resolved before any search and replace runs -- the incoming text first, then each **replace** field -- so each field settles on one option up front.  A `[EYE_COLOR]` placeholder that appears three times, replaced with `{ blue | green }`, comes out as three blue eyes or three green eyes, never a mix.
+
+A later **search** can still match the option an earlier choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
 
 ### Seeding
 
    * With **seed_optional** left unconnected (or set to `0`), a fresh random seed is used on every run, and the node is re-evaluated each time rather than serving a cached result
    * With any other seed the run is fully reproducible: the same seed and the same fields always produce the same text
    * Connect a seed primitive to reproduce a specific result later from the numbers saved in the workflow
+
+## EvaluateStringMultiline [m9] (utilities/primitive)
+
+A multiline text box, like the stock String (Multiline) primitive, with two additions: `{ one | two }` choices are resolved, and one line of the result can be picked at random.  Useful for keeping a list of options -- outfits, settings, whole prompts -- in one place and drawing from it each run.
+
+### Connectors
+
+   * **seed_optional**: Input (INT, optional). Seeds the random choices and the random line.  Works exactly as it does on **StepReplace [m9]**: left at `0`, a fresh seed is used and the node is re-evaluated every run; any other seed makes the result reproducible.
+   * **text**: Output (STRING). The whole text, with every choice resolved.
+   * **random_line**: Output (STRING). One line of **text**, picked at random.
+
+### Fields
+
+   * **value**: The text.  Choices follow the same rules as in **StepReplace [m9]**: options are trimmed, may be empty, may be nested, and `\{` `\|` `\}` are literal characters.
+
+### Random line
+
+   * The line is picked from the resolved text, so it always matches one of the lines of the **text** output
+   * Surrounding whitespace is trimmed, and blank lines are never picked
+   * With only one line, that line is always returned
+   * With no text at all, **random_line** is empty
 
 ## Prefix [m9] (text)
 

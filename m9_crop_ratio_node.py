@@ -24,8 +24,9 @@ class CropToRatio_m9:
                             "height": ("INT", {"forceInput": True}),
                             }}
 
-    RETURN_TYPES = ("IMAGE", )
-    RETURN_NAMES = ("image", )
+    # The size outputs go after image: saved workflows link outputs by slot index.
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "FLOAT", )
+    RETURN_NAMES = ("image", "width", "height", "megapixels", )
 
     FUNCTION = "crop"
 
@@ -47,10 +48,11 @@ class CropToRatio_m9:
         src_w = int(image.shape[2])
 
         new_w, new_h, x_offset, y_offset = calc_crop(src_w, src_h, ratio_w, ratio_h, mode)
+        megapixels = new_w * new_h / 1_000_000
 
         if new_w == src_w and new_h == src_h:
             # Nothing to trim: hand back the original tensor rather than a copy of it.
-            return (image, )
+            return (image, new_w, new_h, megapixels)
 
         # Every frame of a batch shares one size, so a single slice crops the whole batch.
         # The offsets are non-negative and inside the source, so this can't wrap the way
@@ -58,7 +60,7 @@ class CropToRatio_m9:
         # nodes that reshape or hand the tensor to numpy expect a packed buffer.
         cropped = image[:, y_offset:y_offset + new_h, x_offset:x_offset + new_w, :].contiguous()
 
-        return (cropped, )
+        return (cropped, new_w, new_h, megapixels)
 
 
 NODE_CLASS_MAPPINGS = {

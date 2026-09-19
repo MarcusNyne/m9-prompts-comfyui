@@ -11,6 +11,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 
 * **[StepReplace \[m9\]](#stepreplace-m9-text)**: Rewrite text with up to five search-and-replace steps; support for { a | b } choices
 
+* **[EvaluateStringMultiline \[m9\]](#evaluatestringmultiline-m9-utilitiesprimitive)**: A multiline string primitive that resolves { a | b } choices and can pick a random line
+
 ### Prefix builder
 
 * **[Prefix \[m9\]](#prefix-m9-text)**: Join name, theme, scene and frame into a single underscore-separated prefix
@@ -20,6 +22,8 @@ Custom nodes for [comfyanonymous/ComfyUI](https://github.com/comfyanonymous/Comf
 * **[FitPose \[m9\]](#fitpose-m9-imagetransform)**: Fit a pose image into a target canvas without stretching
 
 * **[CropToRatio \[m9\]](#croptoratio-m9-imagetransform)**: Trim an image to an aspect ratio, cutting equally from two opposite edges
+
+* **[CalcScaleFactor \[m9\]](#calcscalefactor-m9-imageupscaling)**: Work out the scale factor, and the 32-pixel-aligned size, that brings an image to a target megapixel count
 
 ## ScramblePrompts [m9] (conditioning)
 
@@ -166,16 +170,39 @@ Anywhere in the incoming text, or in a **replace** field, `{ one | two | three }
    * Options are trimmed, so `{ a | b }` and `{a|b}` are the same thing
    * An empty option is allowed: `{ a | }` picks either `a` or nothing at all
    * Choices may be nested: `{ a | { b | c } }`
-   * Each occurrence draws on its own, so one replacement used three times can give three different results
+   * Each field picks once, so one replacement used three times gives the same result all three times
    * Braces without a `|` are left alone, and `\{` `\|` `\}` are literal characters rather than choice syntax
 
-Choices are resolved as the text is built, not at the end, so a later **search** can also match the option a choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
+Every choice is resolved before any search and replace runs -- the incoming text first, then each **replace** field -- so each field settles on one option up front.  A `[EYE_COLOR]` placeholder that appears three times, replaced with `{ blue | green }`, comes out as three blue eyes or three green eyes, never a mix.
+
+A later **search** can still match the option an earlier choice picked.  In the example above, replacing `flower` with `{ rose | tulip }` means step 2 only fires on the runs where `rose` came up.
 
 ### Seeding
 
    * With **seed_optional** left unconnected (or set to `0`), a fresh random seed is used on every run, and the node is re-evaluated each time rather than serving a cached result
    * With any other seed the run is fully reproducible: the same seed and the same fields always produce the same text
    * Connect a seed primitive to reproduce a specific result later from the numbers saved in the workflow
+
+## EvaluateStringMultiline [m9] (utilities/primitive)
+
+A multiline text box, like the stock String (Multiline) primitive, with two additions: `{ one | two }` choices are resolved, and one line of the result can be picked at random.  Useful for keeping a list of options -- outfits, settings, whole prompts -- in one place and drawing from it each run.
+
+### Connectors
+
+   * **seed_optional**: Input (INT, optional). Seeds the random choices and the random line.  Works exactly as it does on **StepReplace [m9]**: left at `0`, a fresh seed is used and the node is re-evaluated every run; any other seed makes the result reproducible.
+   * **text**: Output (STRING). The whole text, with every choice resolved.
+   * **random_line**: Output (STRING). One line of **text**, picked at random.
+
+### Fields
+
+   * **value**: The text.  Choices follow the same rules as in **StepReplace [m9]**: options are trimmed, may be empty, may be nested, and `\{` `\|` `\}` are literal characters.
+
+### Random line
+
+   * The line is picked from the resolved text, so it always matches one of the lines of the **text** output
+   * Surrounding whitespace is trimmed, and blank lines are never picked
+   * With only one line, that line is always returned
+   * With no text at all, **random_line** is empty
 
 ## Prefix [m9] (text)
 
@@ -238,6 +265,8 @@ Nothing is scaled and nothing is added.  One axis is trimmed equally from both e
    * **width** / **height**: Inputs (INT, optional). The target ratio.  Drive them from a primitive, or from the width/height outputs of a node such as FitPose [m9].
    * **ratio_image**: Input (optional). When connected, the target ratio is taken from this image and the width/height inputs are ignored.  Only its proportions are read, never its pixels — wire in the latent-sized image, the original frame, or anything else already at the shape you want to match.
    * **IMAGE**: Output. The cropped image.
+   * **width** / **height**: Outputs (INT). The size of the cropped image, or of the original when it passes through unchanged.
+   * **megapixels**: Output (FLOAT). The cropped image's pixel count in millions (width × height ÷ 1,000,000).
 
 With neither **ratio_image** nor **width**/**height** connected there is no ratio to crop to, and the image passes through unchanged.
 
@@ -274,6 +303,29 @@ Reach for a restricted mode when the ratio you are matching does not always agre
 
 The restricted modes are a filter, not a different crop: an image they do crop is cropped exactly as `Always` would have.  They only ever decline.  So if a workflow is mysteriously not cropping, the mode is the first thing to check — an orientation that disagrees with the ratio is a silent pass-through by design, not an error.
 
+## CalcScaleFactor [m9] (image/upscaling)
+
+Works out how much to scale an image by to reach a target megapixel count, with the resulting size locked to a 32-pixel grid.  Nothing is resized here — this node only does the arithmetic, for an Upscale Image By or an Upscale Image node downstream to act on.
+
+### Connectors
+
+   * **image**: Input (optional). When connected, the size is taken from this image and the width/height inputs are ignored.  Only its size is read, never its pixels.
+   * **width** / **height**: Inputs (INT, optional). The size to scale from, used only when **image** is not connected.
+   * **scale_factor**: Output (FLOAT). The factor to scale by.  Scaling by it lands the width exactly on the **width** output.
+   * **width** / **height**: Outputs (INT). The target size, both multiples of 32.
+
+With neither **image** nor **width**/**height** connected there is no size to work from: **scale_factor** is `1.0` and **width**/**height** are `0`.
+
+### Fields
+
+   * **megapixels**: The target size in millions of pixels.  `1.0` is about the size of 1024 x 1024.
+
+### How close it gets
+
+The 32-pixel grid takes priority over the megapixel target, so the result is close but rarely exact: a 1920 x 1080 image at `1.0` comes out at 1344 x 768, which is 1.03 MP.
+
+One factor applied to both sides can only land both of them on the grid for a few aspect ratios, so the **width** is the one guaranteed.  The **height** output is the multiple of 32 nearest to where the factor puts the height, which is never more than 16 pixels away (1920 x 1080 scaled by `0.7` is 1344 x 756, against a **height** output of 768).  When both sides must be exact, feed the **width**/**height** outputs to a resize node instead of using **scale_factor** — the aspect ratio shifts by those few pixels.
+
 ## Example Workflows
 
 Example workflows are embedded in the four images in the [examples](examples) folder.  Drag one into ComfyUI to load the workflow it was generated with.
@@ -303,3 +355,13 @@ This example uses **StepReplace [m9]** to perform multiple text replacements and
 This can be used to individually control the inclusion of text parts of a prompt from a main prompt.
 
 An incrementing seed is used on every run, and the node is re-evaluated each time rather than serving a cached result.
+
+### [StepReplace_ScaleFactor_m9.png](examples/StepReplace_ScaleFactor_m9.png)
+
+This example uses a Simple Detector (SEGS) to create a bounding box (BBOX) around the subjects face.  **CalcScaleFactor [m9]** is used to calculate an size for the cropped image from megapixels, then the cropped image is upscaled and resampled to have a high resolution crop from the original image.
+
+**EvaluateStringMultiline [m9]** is demonstrated in two modes:
+   * **text**: performs a {choice} replacement on the full text (eye color)
+   * **random_line**: after performing a {choice} replacement, returns a random line from a selection (hair style)
+
+Also uses **StepReplace [m9]** to perform multiple text replacements.

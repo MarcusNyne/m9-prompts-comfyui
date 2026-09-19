@@ -36,6 +36,12 @@ upstream, where those are now `image/filters`):
   stretching, placed on black
 - `CropToRatio [m9]` — trim an image to a target aspect ratio, cutting equally from two opposite edges
 
+One node is size arithmetic for a resize, filed under `image/upscaling` beside the stock `ImageScaleBy`
+and `ImageScaleToTotalPixels` it feeds. It touches no pixels, so it is not an `image/transform` op:
+
+- `CalcScaleFactor [m9]` — the scale factor and 32-pixel-aligned size that bring an image to a target
+  megapixel count
+
 Two more nodes are plain text ops, filed under the stock `text` category — that is where upstream keeps
 its own string nodes (`StringReplace`/"Replace Text", `StringConcatenate`, the `Regex*` nodes) as of
 ComfyUI v0.34.0. On builds older than the rename that menu was `utils/string`, and the stock primitives
@@ -44,7 +50,14 @@ general-purpose string node belongs:
 
 - `Prefix [m9]` — join name/theme/scene/frame into one underscore-separated filename prefix
 - `StepReplace [m9]` — rewrite text through five ordered search/replace steps, resolving `{ a | b }`
-  choices as it goes
+  choices up front
+
+One node is a text source, filed under the stock `utilities/primitive` beside the
+`PrimitiveStringMultiline` it is modeled on. It has no string input, which makes it a primitive and not a
+`text` op:
+
+- `EvaluateStringMultiline [m9]` — a multiline string widget that resolves `{ a | b }` choices, plus a
+  `random_line` output that picks one non-blank line of the result
 
 Changing a `CATEGORY` does not break saved workflows — ComfyUI serializes nodes by their
 `NODE_CLASS_MAPPINGS` key (`ScramblePrompts_m9`), not by category or display name.
@@ -143,8 +156,12 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
 - `m9_fit_pose_node.py` — `FitPose_m9` plus the tensor↔PIL helpers.
 - `m_cropratio.py` — `calc_crop()` (the crop arithmetic), `_mode_allows()` and `ratio_from_image()`. Pure
   stdlib, so it runs here directly.
-- `m9_crop_ratio_node.py` — `CropToRatio_m9`. The only node wrapper with no third-party imports: the crop
-  is one tensor slice, so there is no torch/PIL round trip to make.
+- `m9_crop_ratio_node.py` — `CropToRatio_m9`. No third-party imports: the crop is one tensor slice, so
+  there is no torch/PIL round trip to make.
+- `m_scalefactor.py` — `calc_scale()` and `_snap()`. Pure stdlib, so it runs here directly.
+- `m9_scale_factor_node.py` — `CalcScaleFactor_m9`. Reads its size through `m_cropratio.ratio_from_image`,
+  so it takes `image`/`width`/`height` exactly the way `CropToRatio` takes its ratio. No third-party
+  imports; load it here the same way as the crop node.
 - `m_prefix.py` — `build_prefix()` and `sanitize_part()`. Pure stdlib, so it runs here directly.
 - `m9_prefix_node.py` — `Prefix_m9`, a thin pass-through to `build_prefix()`.
 - `m_stepreplace.py` — `step_replace()` plus `apply_step()`, `expand_choices()` and `build_pattern()`.
@@ -152,6 +169,12 @@ ComfyUI wrapper (`m9_*.py`). Keep new work on that seam — it's what makes anyt
 - `m9_step_replace_node.py` — `StepReplace_m9`. Its search/replace widgets and the pair list it hands to
   `step_replace()` are both generated from `sStepCount`, so the two can't drift; the widgets arrive back as
   `**kwargs` for the same reason. `step_replace()` itself takes any number of pairs.
+- `m_evalstring.py` — `evaluate_string()` and `pick_line()`. Reuses `expand_choices()` from
+  `m_stepreplace.py` so the choice syntax can't diverge between the two nodes. It is the one logic module
+  that imports another, through a relative-then-plain `try`/`except ImportError`, so it still runs
+  directly from the checkout.
+- `m9_eval_string_node.py` — `EvaluateStringMultiline_m9`. Same `seed_optional`/`IS_CHANGED`
+  convention as `StepReplace_m9`.
 
 `__init__.py` merges the `NODE_CLASS_MAPPINGS` / `NODE_DISPLAY_NAME_MAPPINGS` dicts that each `m9_*.py`
 module declares. A new node module must export both and be merged there, or ComfyUI won't see it.
@@ -200,7 +223,7 @@ variation per run means driving `seed_optional` from a seed primitive — which 
 users to do. Adding `"control_after_generate": True` to the widget spec would give the node its own
 randomize control and remove that requirement.
 
-`StepReplace_m9` **deliberately inverts that convention**: there `0` means *no seed given*, so it passes
+`StepReplace_m9` and `EvaluateStringMultiline_m9` **deliberately invert that convention**: there `0` means *no seed given*, so it passes
 `None` to `random.Random` and seeds from entropy. That only works because the class also defines
 `IS_CHANGED`, which returns `float("nan")` for seed 0 — ComfyUI folds that value into the node's cache key
 and NaN never compares equal to itself, so the node re-executes every queue. Delete `IS_CHANGED` and the
@@ -277,9 +300,28 @@ with nothing but an image wired in is a no-op rather than an error. `ratio_from_
 `shape[2]`/`shape[1]` of the `[B,H,W,C]` tensor and returns `None` on anything it doesn't recognize, which
 falls back to the `width`/`height` inputs; the ratio image's batch size and pixels are never touched.
 
-The node returns `IMAGE` alone. `FitPose` also emits its resolved `width`/`height` because that canvas size
-is what an `EmptyLatentImage` downstream needs; a crop result is nothing another node has to be told, so
-there is no size output here.
+The node returns `image, width, height, megapixels` — the result's size, which on a pass-through is the
+source's. `megapixels` is a `FLOAT`, `width * height / 1_000_000`, unrounded. The size outputs were
+appended after `image` on purpose: ComfyUI links outputs by slot index, so `image` must stay slot 0 or
+saved workflows rewire.
+
+### Scale factor
+
+`calc_scale` returns `(scale_factor, new_w, new_h)`. Both sides are multiples of `sStep` (32), and that
+grid **takes priority over the megapixel target**, which is only approximate. That priority is the user's
+call.
+
+One uniform factor can almost never land both sides on the grid near the target (a 517x389 source's
+nearest such factor is ~6.7 MP when 1.0 is asked for), so **the width is the exact side**, also by the
+user's choice. `new_w` is snapped from the ideal factor, `scale_factor = new_w / src_w`, and `new_h` is
+snapped from `src_h * scale_factor`, the *final* factor rather than the ideal one. That order is
+load-bearing: it keeps scaling by `scale_factor` within 16px of `new_h`, where snapping both sides from the
+ideal factor lets them drift 20px apart (1920x1080 at 1 MP). The only exception is a height small enough
+to clamp up to one step. Don't round `scale_factor` for display either: `round(src_w * scale_factor)`
+must equal `new_w`.
+
+It is total the way `calc_crop` is: no size, or a non-positive target, returns `(1.0, src_w, src_h)`, so
+an unwired node outputs `1.0, 0, 0` rather than raising.
 
 ### Prefix assembly
 
@@ -296,18 +338,21 @@ silently run together. Don't "fix" the date tokens without asking; the alternati
 
 ### Step replacement
 
-`step_replace()` runs the pairs top to bottom over one running string, and **expands choices as it goes**:
-the incoming text is expanded before step 1, and each replacement is expanded at the moment it is inserted.
-That ordering is the feature — it is what lets `search_2` match text that `replace_1` produced, including
-the option a `{ a | b }` picked. Expanding once at the end instead would break that chaining.
+`step_replace()` **expands every choice up front**, before any pair runs: the incoming text first, then
+each `replace` field in order, each exactly once. It then runs the pairs top to bottom over one running
+string, and `apply_step` inserts the already-resolved replacement literally. Because replacements are
+resolved before insertion rather than at the end, `search_2` can still match text that `replace_1`
+produced, including the option a `{ a | b }` picked. Expanding once at the end would break that chaining.
 
 Four details there are load-bearing:
 
-- **Each occurrence draws its own choice.** `apply_step` passes a function to `Pattern.subn`, so a
-  replacement of `{ rose | tulip }` against three hits can yield three different flowers. Expanding the
-  replacement once and reusing the string would quietly make them identical.
+- **Each field picks once, for every occurrence.** A `[EYE_COLOR]` used three times and replaced with
+  `{ blue | green }` must come out as one color three times. That was a user request (2026-09-18). Before
+  it, `apply_step` expanded the replacement per match and the three could mix. Don't move expansion back
+  into the `subn` callback. Every `replace` field is expanded even when its step is skipped, so filling
+  in or clearing one search field doesn't shift the draws for the others.
 - **One generator per call.** `step_replace` builds a single `random.Random(inSeed)` and threads it through
-  every expansion — same invariant as `mPrompt`, and just as easy to break by seeding inside a loop.
+  every up-front expansion — same invariant as `mPrompt`, and just as easy to break by seeding inside a loop.
 - **Braces without a `|` are left alone.** `{like_this}` survives verbatim, so text that merely happens to
   use braces isn't mangled. The cost is that a pipe-less inner brace also blocks an enclosing choice
   (`{ a | {b} }` stays literal); the real nesting case, `{ a | { b | c } }`, resolves innermost-first.
@@ -318,6 +363,14 @@ Four details there are load-bearing:
   `<lora:foo:0.8>` still match anywhere — an unconditional `\b` would never match those at all. Matching
   is case-insensitive, and both fields are `strip()`ed (a whitespace-only search is what "skip this step"
   means).
+
+### Evaluated string
+
+`evaluate_string()` builds one generator, expands the whole value, then picks `random_line` **from the
+expanded text** with that same generator. So the line always matches a line of the `text` output, and a
+choice that spans a newline has been resolved before the split. `pick_line` trims lines and never picks a
+blank one, so a trailing newline can't produce an empty `random_line`. With exactly one non-blank line it
+returns that line without drawing.
 
 ## Known gaps
 

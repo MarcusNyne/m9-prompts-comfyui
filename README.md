@@ -355,3 +355,13 @@ This example uses **StepReplace [m9]** to perform multiple text replacements and
 This can be used to individually control the inclusion of text parts of a prompt from a main prompt.
 
 An incrementing seed is used on every run, and the node is re-evaluated each time rather than serving a cached result.
+
+### [StepReplace_ScaleFactor_m9.png](examples/StepReplace_ScaleFactor_m9.png)
+
+This example uses a Simple Detector (SEGS) to create a bounding box (BBOX) around the subjects face.  **CalcScaleFactor [m9]** is used to calculate an size for the cropped image from megapixels, then the cropped image is upscaled and resampled to have a high resolution crop from the original image.
+
+**EvaluateStringMultiline [m9]** is demonstrated in two modes:
+   * **text**: performs a {choice} replacement on the full text (eye color)
+   * **random_line**: after performing a {choice} replacement, returns a random line from a selection (hair style)
+
+Also uses **StepReplace [m9]** to perform multiple text replacements.
